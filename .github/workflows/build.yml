@@ -8,8 +8,9 @@ on:
         default: true
 
   workflow_dispatch:
+
   schedule:
-    - cron: '15 17 * * *'
+    - cron: '23 17 * * *'
 
 jobs:
   run:
