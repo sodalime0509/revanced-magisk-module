@@ -3,7 +3,7 @@ name: Build Modules
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+    - cron: '0 2 * * *'
 
 jobs:
   build:
@@ -38,7 +38,6 @@ jobs:
       - name: Get next version
         id: version
         run: |
-          # Get latest release tag
           LATEST_TAG=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/latest" | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4 || echo "0")
           if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then
             LATEST_TAG="0"
@@ -75,7 +74,6 @@ jobs:
           COUNT=$(ls -1 | wc -l)
           echo "BUILD_COUNT=$COUNT" >> $GITHUB_OUTPUT
           
-          # Create changelog
           if [ -f "../build.md" ]; then
             cp ../build.md changelog.md
           else
@@ -96,7 +94,6 @@ jobs:
 
       - name: Update repository
         run: |
-          # Switch to update branch
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           
@@ -107,30 +104,27 @@ jobs:
             echo "Created new update branch"
           fi
           
-          # Copy build info
           if [ -f "build.md" ]; then
             cp build.md update_log.md
           fi
           
-          # Create update files
           cd build 2>/dev/null || exit 0
           for file in *.zip; do
             [ -f "$file" ] || continue
             if [[ $file == *"magisk"* ]]; then
-              # Create update JSON for Magisk modules
-              cat > "../${file%.*}-update.json" << EOF
+              cat > "../${file%.*}-update.json" << 'JSONEOF'
 {
   "version": "v${{ steps.version.outputs.NEXT_VERSION }}",
   "versionCode": ${{ steps.version.outputs.NEXT_VERSION }},
-  "zipUrl": "https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.NEXT_VERSION }}/$file",
+  "zipUrl": "https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.NEXT_VERSION }}/FILENAME",
   "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/update/build.md"
 }
-EOF
+JSONEOF
+              sed -i "s/FILENAME/$file/g" "../${file%.*}-update.json"
             fi
           done
           cd ..
           
-          # Commit updates
           git add -A
           if git diff --staged --quiet; then
             echo "No changes to commit"
@@ -144,30 +138,28 @@ EOF
         run: |
           if [ -d "build" ]; then
             cd build
-            FILE_LIST=$(ls -1 | head -10 | sed 's/^/• /' | tr '\n' ' ')
-            FILE_COUNT=$(ls -1 | wc -l)
-            STATUS="✅ SUCCESS"
+            FILE_LIST=$(ls -1 2>/dev/null | head -10 | sed 's/^/• /' | tr '\n' ' ' || echo "No files")
+            FILE_COUNT=$(ls -1 2>/dev/null | wc -l || echo "0")
+            STATUS="SUCCESS"
           else
             FILE_LIST="No files built"
             FILE_COUNT="0"
-            STATUS="❌ FAILED"
+            STATUS="FAILED"
           fi
           
           RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.NEXT_VERSION }}"
           
-          MESSAGE="🚀 ReVanced Build Complete!
+          MESSAGE="ReVanced Build Complete!
 
-$STATUS Build #${{ steps.version.outputs.NEXT_VERSION }}
+Status: $STATUS
+Build: ${{ steps.version.outputs.NEXT_VERSION }}
+Files: $FILE_COUNT
+Release: $RELEASE_URL
 
-📦 Files: $FILE_COUNT
-🔗 Release: $RELEASE_URL
+Built files: $FILE_LIST
 
-📋 Files built:
-$FILE_LIST
+Time: $(date -u)"
 
-⏰ $(date -u)"
-
-          # Send to Telegram
           curl -s -X POST "https://api.telegram.org/bot7895827988:AAHupsejGicKxN8dnD3KxB3kDPwmSBGf2g8l/sendMessage" \
             --data-urlencode "chat_id=717601421" \
             --data-urlencode "text=$MESSAGE" \
