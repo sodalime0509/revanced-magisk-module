@@ -1,132 +1,176 @@
 name: Build Modules
+
 on:
-  workflow_call:
-    inputs:
-      from_ci:
-        type: boolean
-        required: false
-        default: true
-
   workflow_dispatch:
-
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '0 2 * * *'  # Daily at 2 AM UTC
 
 jobs:
-  run:
-    permissions: write-all
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      
     steps:
-      - uses: actions/setup-java@v4
-        with:
-          distribution: "zulu"
-          java-version: "17"
-
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: true
 
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "zulu"
+          java-version: "17"
+
       - name: Update config
-        if: ${{ inputs.from_ci }}
         run: |
-          if git checkout origin/update build.md; then
-            UPDATE_CFG=$(./build.sh config.toml --config-update)
-            if [ "$UPDATE_CFG" ]; then
-              echo "$UPDATE_CFG" > config.json
+          if git checkout origin/update build.md 2>/dev/null; then
+            if [ -f "./build.sh" ] && [ -f "config.toml" ]; then
+              UPDATE_CFG=$(./build.sh config.toml --config-update 2>/dev/null || echo "")
+              if [ -n "$UPDATE_CFG" ]; then
+                echo "$UPDATE_CFG" > config.json
+              fi
             fi
           fi
 
-      - name: Get next version code
-        id: next_ver_code
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Get next version
+        id: version
         run: |
-          TAG=$(gh release list -L 1 | awk -F '\t' '{print $3}')
-          if [ -z "$TAG" ]; then TAG=0; fi
-          echo "NEXT_VER_CODE=$((TAG + 1))" >> $GITHUB_OUTPUT
+          # Get latest release tag
+          LATEST_TAG=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/latest" | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4 || echo "0")
+          if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then
+            LATEST_TAG="0"
+          fi
+          NEXT_VERSION=$((LATEST_TAG + 1))
+          echo "NEXT_VERSION=$NEXT_VERSION" >> $GITHUB_OUTPUT
+          echo "Next version will be: $NEXT_VERSION"
 
-      - name: Build modules/APKs
-        run: if [ -f "config.json" ]; then ./build.sh config.json; else ./build.sh config.toml; fi
+      - name: Build modules and APKs
+        run: |
+          if [ -f "config.json" ]; then
+            ./build.sh config.json
+          elif [ -f "config.toml" ]; then
+            ./build.sh config.toml
+          else
+            echo "No config file found!"
+            exit 1
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: $GITHUB_REPOSITORY
-          NEXT_VER_CODE: ${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          NEXT_VER_CODE: ${{ steps.version.outputs.NEXT_VERSION }}
 
-      - name: Get output
-        id: get_output
+      - name: Prepare build output
+        id: build_info
         run: |
-          DELIM="$(openssl rand -hex 8)"
-          echo "BUILD_LOG<<${DELIM}" >> "$GITHUB_OUTPUT"
-          cat build.md >> "$GITHUB_OUTPUT"
-          echo "${DELIM}" >> "$GITHUB_OUTPUT"
-          cp -f build.md build.tmp
+          if [ ! -d "build" ]; then
+            echo "Build directory not found!"
+            exit 1
+          fi
+          
+          cd build
+          FILES=$(ls -la)
+          COUNT=$(ls -1 | wc -l)
+          echo "BUILD_COUNT=$COUNT" >> $GITHUB_OUTPUT
+          
+          # Create changelog
+          if [ -f "../build.md" ]; then
+            cp ../build.md changelog.md
+          else
+            echo "Automated build $(date)" > changelog.md
+          fi
 
-      - name: Upload modules to release
-        uses: svenstaro/upload-release-action@v2
+      - name: Create release
+        uses: softprops/action-gh-release@v1
         with:
-          body: ${{ steps.get_output.outputs.BUILD_LOG }}
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ./build/*
-          release_name: ReVanced
-          tag: ${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}
-          file_glob: true
-          overwrite: true
+          tag_name: ${{ steps.version.outputs.NEXT_VERSION }}
+          name: "ReVanced Build ${{ steps.version.outputs.NEXT_VERSION }}"
+          body_path: build/changelog.md
+          files: build/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update changelog and Magisk update json
-        id: update_config
+      - name: Update repository
         run: |
-          git checkout -f update || git switch --discard-changes --orphan update
-          cp -f build.tmp build.md
-          get_update_json() {
-            echo "{
-            \"version\": \"$1\",
-            \"versionCode\": ${{ steps.next_ver_code.outputs.NEXT_VER_CODE }},
-            \"zipUrl\": \"$2\",
-            \"changelog\": \"https://raw.githubusercontent.com/$GITHUB_REPOSITORY/update/build.md\"
-          }"
-          }
-
-          cd build || { echo "build folder not found"; exit 1; }
-          for OUTPUT in *magisk*.zip; do
-            [ "$OUTPUT" = "*magisk*.zip" ] && continue
-            ZIP_S=$(unzip -p "$OUTPUT" module.prop)
-            if ! UPDATE_JSON=$(echo "$ZIP_S" | grep updateJson); then continue; fi
-            UPDATE_JSON="${UPDATE_JSON##*/}"
-            VER=$(echo "$ZIP_S" | grep version=)
-            VER="${VER##*=}"
-            DLURL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}/${OUTPUT}"
-            get_update_json "$VER" "$DLURL" >"../$UPDATE_JSON"
+          # Switch to update branch
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          
+          if git checkout update 2>/dev/null; then
+            echo "Switched to existing update branch"
+          else
+            git checkout --orphan update
+            echo "Created new update branch"
+          fi
+          
+          # Copy build info
+          if [ -f "build.md" ]; then
+            cp build.md update_log.md
+          fi
+          
+          # Create update files
+          cd build 2>/dev/null || exit 0
+          for file in *.zip; do
+            [ -f "$file" ] || continue
+            if [[ $file == *"magisk"* ]]; then
+              # Create update JSON for Magisk modules
+              cat > "../${file%.*}-update.json" << EOF
+{
+  "version": "v${{ steps.version.outputs.NEXT_VERSION }}",
+  "versionCode": ${{ steps.version.outputs.NEXT_VERSION }},
+  "zipUrl": "https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.NEXT_VERSION }}/$file",
+  "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/update/build.md"
+}
+EOF
+            fi
           done
           cd ..
+          
+          # Commit updates
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update build ${{ steps.version.outputs.NEXT_VERSION }}"
+            git push origin update --force
+          fi
 
-          find . -name "*-update.json" | grep . || : >dummy-update.json
-
-      - uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          branch: update
-          skip_checkout: true
-          file_pattern: build.md *-update.json
-          commit_message: Bump version ${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}
-
-      - name: Notify via Telegram Bot
+      - name: Send Telegram notification
+        if: always()
         run: |
-          # Get build info
-          cd build || { echo "build folder not found"; exit 1; }
+          if [ -d "build" ]; then
+            cd build
+            FILE_LIST=$(ls -1 | head -10 | sed 's/^/• /' | tr '\n' ' ')
+            FILE_COUNT=$(ls -1 | wc -l)
+            STATUS="✅ SUCCESS"
+          else
+            FILE_LIST="No files built"
+            FILE_COUNT="0"
+            STATUS="❌ FAILED"
+          fi
           
-          BUILD_COUNT=$(ls -1 | wc -l)
-          BUILD_FILES=$(ls -1 | head -5 | tr '\n' ', ')  # Join files with commas
-          RELEASE_URL="https://github.com/$GITHUB_REPOSITORY/releases/tag/${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}"
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.NEXT_VERSION }}"
           
-          # Create message (using proper escaping)
-          MESSAGE="🚀 *ReVanced Build Complete!*%0A%0A📦 *Files built:* $BUILD_COUNT%0A📋 *Version:* ${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}%0A🔗 *Download:* [Release Page]($RELEASE_URL)%0A%0A📁 *Built files:*%0A$BUILD_FILES%0A%0A✅ Build completed successfully"
+          MESSAGE="🚀 ReVanced Build Complete!
 
-          # Send message to your user ID
+$STATUS Build #${{ steps.version.outputs.NEXT_VERSION }}
+
+📦 Files: $FILE_COUNT
+🔗 Release: $RELEASE_URL
+
+📋 Files built:
+$FILE_LIST
+
+⏰ $(date -u)"
+
+          # Send to Telegram
           curl -s -X POST "https://api.telegram.org/bot7895827988:AAHupsejGicKxN8dnD3KxB3kDPwmSBGf2g8l/sendMessage" \
-            -d "chat_id=717601421" \
-            -d "parse_mode=Markdown" \
-            -d "disable_web_page_preview=true" \
-            -d "text=$MESSAGE"
+            --data-urlencode "chat_id=717601421" \
+            --data-urlencode "text=$MESSAGE" \
+            --data-urlencode "disable_web_page_preview=true" || echo "Telegram notification failed"
           
-          echo "✅ Notification sent to Telegram"
+          echo "Notification sent!"
