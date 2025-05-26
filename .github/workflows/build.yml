@@ -110,30 +110,34 @@ jobs:
           file_pattern: build.md *-update.json
           commit_message: Bump version ${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}
 
-      - - name: Report to Telegram (Private Ping)
+      - name: Report to Telegram (Private Ping)
   run: |
     USER_ID=717601421
     TG_TOKEN="${{ secrets.TG_TOKEN }}"
 
     cd build || { echo "build folder not found"; exit 1; }
 
-    # Generate list of files
+    # Generate file download links
     LINKS=""
     for FILE in *; do
       URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}/${FILE}"
-      LINKS+="\n• [${FILE}](${URL})"
+      LINKS="${LINKS}\n• [${FILE}](${URL})"
     done
 
-    # Extract and format changelog
-    CHANGELOG="$(sed 's/^\* \*\*/↪ \*\*/g; s/^\* `/↪ \*\*/g; s/`/\*/g; s/^\* /\↪/g; s/\*\*/\*/g; s/###//g; s/^- /↪ /g; /^==/d;' ../build.md)"
-    CHANGELOG="${CHANGELOG:0:3500}"
+    # Get and sanitize changelog
+    cd ..
+    RAW_CHANGELOG=$(cat build.md)
+    SANITIZED_CHANGELOG=$(echo "$RAW_CHANGELOG" | sed 's/^\* \*\*/↪ \*\*/g; s/^\* `/↪ \*\*/g; s/`/\*/g; s/^\* /\↪/g; s/\*\*/\*/g; s/###//g; s/^- /↪ /g; /^==/d;')
+    SHORT_CHANGELOG=$(echo "$SANITIZED_CHANGELOG" | head -c 3500)
 
+    # Prepare message
     MSG="✅ *New ReVanced Build Released!*
 
-${CHANGELOG}
+${SHORT_CHANGELOG}
 
 *▼ Download Links:*${LINKS}"
 
+    # Send message
     curl -s -X POST https://api.telegram.org/bot${TG_TOKEN}/sendMessage \
       -d chat_id=${USER_ID} \
       -d parse_mode=Markdown \
