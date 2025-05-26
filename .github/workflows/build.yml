@@ -92,45 +92,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update repository
-        run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          
-          if git checkout update 2>/dev/null; then
-            echo "Switched to existing update branch"
-          else
-            git checkout --orphan update
-            echo "Created new update branch"
-          fi
-          
-          if [ -f "build.md" ]; then
-            cp build.md update_log.md
-          fi
-          
-          if [ -d "build" ]; then
-            cd build
-            for file in *.zip; do
-              if [ -f "$file" ] && [[ $file == *"magisk"* ]]; then
-                JSON_FILE="../${file%.*}-update.json"
-                echo "{" > "$JSON_FILE"
-                echo "  \"version\": \"v${{ steps.version.outputs.NEXT_VERSION }}\"," >> "$JSON_FILE"
-                echo "  \"versionCode\": ${{ steps.version.outputs.NEXT_VERSION }}," >> "$JSON_FILE"
-                echo "  \"zipUrl\": \"https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.NEXT_VERSION }}/$file\"," >> "$JSON_FILE"
-                echo "  \"changelog\": \"https://raw.githubusercontent.com/${{ github.repository }}/update/build.md\"" >> "$JSON_FILE"
-                echo "}" >> "$JSON_FILE"
-              fi
-            done
-            cd ..
-          fi
-          
-          git add -A
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "Update build ${{ steps.version.outputs.NEXT_VERSION }}"
-            git push origin update --force
-          fi
 
       - name: Send Telegram notification
         if: always()
