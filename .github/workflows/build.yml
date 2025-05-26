@@ -110,26 +110,17 @@ jobs:
           file_pattern: build.md *-update.json
           commit_message: Bump version ${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}
 
-- name: Notify via Telegram Bot
+      - name: Notify via Telegram Bot
         run: |
           # Get build info
           cd build || { echo "build folder not found"; exit 1; }
           
           BUILD_COUNT=$(ls -1 | wc -l)
-          BUILD_FILES=$(ls -1 | head -5)  # Show first 5 files
+          BUILD_FILES=$(ls -1 | head -5 | tr '\n' ', ')  # Join files with commas
           RELEASE_URL="https://github.com/$GITHUB_REPOSITORY/releases/tag/${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}"
           
-          # Create message
-          MESSAGE="🚀 *ReVanced Build Complete!*
-          
-📦 *Files built:* $BUILD_COUNT
-📋 *Version:* ${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}
-🔗 *Download:* [Release Page]($RELEASE_URL)
-
-📁 *Built files:*
-$BUILD_FILES
-
-✅ Build completed successfully at $(date)"
+          # Create message (using proper escaping)
+          MESSAGE="🚀 *ReVanced Build Complete!*%0A%0A📦 *Files built:* $BUILD_COUNT%0A📋 *Version:* ${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}%0A🔗 *Download:* [Release Page]($RELEASE_URL)%0A%0A📁 *Built files:*%0A$BUILD_FILES%0A%0A✅ Build completed successfully"
 
           # Send message to your user ID
           curl -s -X POST "https://api.telegram.org/bot7895827988:AAHupsejGicKxN8dnD3KxB3kDPwmSBGf2g8l/sendMessage" \
@@ -139,4 +130,3 @@ $BUILD_FILES
             -d "text=$MESSAGE"
           
           echo "✅ Notification sent to Telegram"
-      
