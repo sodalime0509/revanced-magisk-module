@@ -108,22 +108,21 @@ jobs:
             cp build.md update_log.md
           fi
           
-          cd build 2>/dev/null || exit 0
-          for file in *.zip; do
-            [ -f "$file" ] || continue
-            if [[ $file == *"magisk"* ]]; then
-              cat > "../${file%.*}-update.json" << 'JSONEOF'
-{
-  "version": "v${{ steps.version.outputs.NEXT_VERSION }}",
-  "versionCode": ${{ steps.version.outputs.NEXT_VERSION }},
-  "zipUrl": "https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.NEXT_VERSION }}/FILENAME",
-  "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/update/build.md"
-}
-JSONEOF
-              sed -i "s/FILENAME/$file/g" "../${file%.*}-update.json"
-            fi
-          done
-          cd ..
+          if [ -d "build" ]; then
+            cd build
+            for file in *.zip; do
+              if [ -f "$file" ] && [[ $file == *"magisk"* ]]; then
+                JSON_FILE="../${file%.*}-update.json"
+                echo "{" > "$JSON_FILE"
+                echo "  \"version\": \"v${{ steps.version.outputs.NEXT_VERSION }}\"," >> "$JSON_FILE"
+                echo "  \"versionCode\": ${{ steps.version.outputs.NEXT_VERSION }}," >> "$JSON_FILE"
+                echo "  \"zipUrl\": \"https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.NEXT_VERSION }}/$file\"," >> "$JSON_FILE"
+                echo "  \"changelog\": \"https://raw.githubusercontent.com/${{ github.repository }}/update/build.md\"" >> "$JSON_FILE"
+                echo "}" >> "$JSON_FILE"
+              fi
+            done
+            cd ..
+          fi
           
           git add -A
           if git diff --staged --quiet; then
@@ -138,9 +137,10 @@ JSONEOF
         run: |
           if [ -d "build" ]; then
             cd build
-            FILE_LIST=$(ls -1 2>/dev/null | head -10 | sed 's/^/• /' | tr '\n' ' ' || echo "No files")
+            FILE_LIST=$(ls -1 2>/dev/null | head -5 | tr '\n' ',' | sed 's/,$//' || echo "No files")
             FILE_COUNT=$(ls -1 2>/dev/null | wc -l || echo "0")
             STATUS="SUCCESS"
+            cd ..
           else
             FILE_LIST="No files built"
             FILE_COUNT="0"
@@ -149,20 +149,11 @@ JSONEOF
           
           RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.NEXT_VERSION }}"
           
-          MESSAGE="ReVanced Build Complete!
-
-Status: $STATUS
-Build: ${{ steps.version.outputs.NEXT_VERSION }}
-Files: $FILE_COUNT
-Release: $RELEASE_URL
-
-Built files: $FILE_LIST
-
-Time: $(date -u)"
+          MESSAGE="ReVanced Build Complete - Status: $STATUS - Build: ${{ steps.version.outputs.NEXT_VERSION }} - Files: $FILE_COUNT - Release: $RELEASE_URL - Built: $FILE_LIST - Time: $(date -u)"
 
           curl -s -X POST "https://api.telegram.org/bot7895827988:AAHupsejGicKxN8dnD3KxB3kDPwmSBGf2g8l/sendMessage" \
-            --data-urlencode "chat_id=717601421" \
-            --data-urlencode "text=$MESSAGE" \
-            --data-urlencode "disable_web_page_preview=true" || echo "Telegram notification failed"
+            -d "chat_id=717601421" \
+            -d "text=$MESSAGE" \
+            -d "disable_web_page_preview=true" || echo "Telegram notification failed"
           
           echo "Notification sent!"
