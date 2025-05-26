@@ -109,37 +109,33 @@ jobs:
           skip_checkout: true
           file_pattern: build.md *-update.json
           commit_message: Bump version ${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}
+- name: Notify via Telegram Bot
+        run: |
+          # Get build info
+          cd build || { echo "build folder not found"; exit 1; }
+          
+          BUILD_COUNT=$(ls -1 | wc -l)
+          BUILD_FILES=$(ls -1 | head -5)  # Show first 5 files
+          RELEASE_URL="https://github.com/$GITHUB_REPOSITORY/releases/tag/${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}"
+          
+          # Create message
+          MESSAGE="🚀 *ReVanced Build Complete!*
+          
+📦 *Files built:* $BUILD_COUNT
+📋 *Version:* ${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}
+🔗 *Download:* [Release Page]($RELEASE_URL)
 
-      - name: Report to Telegram (Private Ping)
-  run: |
-    USER_ID=717601421
-    TG_TOKEN="${{ secrets.TG_TOKEN }}"
+📁 *Built files:*
+$BUILD_FILES
 
-    cd build || { echo "build folder not found"; exit 1; }
+✅ Build completed successfully at $(date)"
 
-    # Generate file download links
-    LINKS=""
-    for FILE in *; do
-      URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}/${FILE}"
-      LINKS="${LINKS}\n• [${FILE}](${URL})"
-    done
-
-    # Get and sanitize changelog
-    cd ..
-    RAW_CHANGELOG=$(cat build.md)
-    SANITIZED_CHANGELOG=$(echo "$RAW_CHANGELOG" | sed 's/^\* \*\*/↪ \*\*/g; s/^\* `/↪ \*\*/g; s/`/\*/g; s/^\* /\↪/g; s/\*\*/\*/g; s/###//g; s/^- /↪ /g; /^==/d;')
-    SHORT_CHANGELOG=$(echo "$SANITIZED_CHANGELOG" | head -c 3500)
-
-    # Prepare message
-    MSG="✅ *New ReVanced Build Released!*
-
-${SHORT_CHANGELOG}
-
-*▼ Download Links:*${LINKS}"
-
-    # Send message
-    curl -s -X POST https://api.telegram.org/bot${TG_TOKEN}/sendMessage \
-      -d chat_id=${USER_ID} \
-      -d parse_mode=Markdown \
-      -d disable_web_page_preview=true \
-      --data-urlencode text="${MSG}"
+          # Send message to your user ID
+          curl -s -X POST "https://api.telegram.org/bot7895827988:AAHupsejGicKxN8dnD3KxB3kDPwmSBGf2g8l/sendMessage" \
+            -d "chat_id=717601421" \
+            -d "parse_mode=Markdown" \
+            -d "disable_web_page_preview=true" \
+            -d "text=$MESSAGE"
+          
+          echo "✅ Notification sent to Telegram"
+      
