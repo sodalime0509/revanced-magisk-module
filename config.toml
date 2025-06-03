@@ -50,6 +50,7 @@ apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/youtube-music"
 
 [YouTube-Extended]
 app-name = "YouTube"
+version = "20.16"
 patches-source = "anddea/revanced-patches"
 patches-version = "v3.10.0-dev.1"
 cli-source = "inotia00/revanced-cli"
