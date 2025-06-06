@@ -80,169 +80,34 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Send Telegram Message with Attachments
+      - name: Send Telegram notification
         if: always()
         run: |
-          # Check if build directory exists
-          if [ ! -d "build" ]; then
-            echo "Build directory not found!"
-            # Send failure message
-            STATUS="❌ FAILED - Build directory not found"
-            DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
-            MSG="<b>🚫 ReVanced Build Failed</b>%0A<b>Status:</b> ${STATUS}%0A<b>Build:</b> ${{ steps.version.outputs.NEXT_VERSION }}%0A<b>Time:</b> ${DATE}"
-            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
-              -d chat_id=717601421 \
-              -d text="$MSG" \
-              -d parse_mode=HTML
-            exit 0
+          if [ -d "build" ]; then
+            cd build
+            FILE_LIST=$(ls -1 2>/dev/null | head -5 | tr '\n' ',' | sed 's/,$//' || echo "No files")
+            FILE_COUNT=$(ls -1 2>/dev/null | wc -l || echo "0")
+            STATUS="SUCCESS"
+            cd ..
+          else
+            FILE_LIST="No files built"
+            FILE_COUNT="0"
+            STATUS="FAILED"
           fi
           
-          # Check if APK files exist in build directory
-          if ! ls build/*.apk >/dev/null 2>&1; then
-            echo "No APK files found in build directory"
-            # Send failure message
-            STATUS="❌ FAILED - No APK files found"
-            DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
-            MSG="<b>🚫 ReVanced Build Failed</b>%0A<b>Status:</b> ${STATUS}%0A<b>Build:</b> ${{ steps.version.outputs.NEXT_VERSION }}%0A<b>Time:</b> ${DATE}"
-            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
-              -d chat_id=717601421 \
-              -d text="$MSG" \
-              -d parse_mode=HTML
-            exit 0
-          fi
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.NEXT_VERSION }}"
           
-          # Get file info
-          cd build
-          FILES=$(ls -1 *.apk 2>/dev/null)
-          FILE_COUNT=$(echo "$FILES" | wc -l)
-          STATUS="✅ SUCCESS"
-          DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
+          MESSAGE="ReVanced Build Complete 
+          Status: $STATUS 
+          Build: ${{ steps.version.outputs.NEXT_VERSION }} 
+          Files: $FILE_COUNT 
+          Release: $RELEASE_URL 
+          Built: $FILE_LIST 
+          Time: $(date -u)"
+
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN}}/sendMessage" \
+            -d "chat_id=717601421" \
+            -d "text=$MESSAGE" \
+            -d "disable_web_page_preview=true" || echo "Telegram notification failed"
           
-          echo "Found $FILE_COUNT APK files to send"
-          
-          # Send first file with full message, rest with just filename
-          FIRST_FILE=true
-          for FILE in $FILES; do
-            # Check if file actually exists and is readable
-            if [ ! -f "$FILE" ]; then
-              echo "⚠️ File $FILE not found, skipping..."
-              continue
-            fi
-            
-            FILE_SIZE=$(stat -c%s "$FILE" 2>/dev/null || echo "0")
-            if [ "$FILE_SIZE" -eq 0 ]; then
-              echo "⚠️ File $FILE is empty, skipping..."
-              continue
-            fi
-            
-            if [ "$FIRST_FILE" = true ]; then
-              MSG="<b>🎉 ReVanced Build Complete</b>%0A<b>Status:</b> ${STATUS}%0A<b>Build:</b> ${{ steps.version.outputs.NEXT_VERSION }}%0A<b>Files:</b> ${FILE_COUNT}%0A<b>Time:</b> ${DATE}%0A%0A📱 <code>${FILE}</code>"
-              FIRST_FILE=false
-            else
-              MSG="📱 <code>${FILE}</code>"
-            fi
-            
-            echo "Sending $FILE to Telegram (Size: ${FILE_SIZE} bytes)..."
-            
-            # Check file size (Local Bot API limit is 2000MB, regular API is 50MB)
-            FILE_SIZE_MB=$((FILE_SIZE / 1024 / 1024))
-            
-            # Determine which API endpoint to use based on file size
-            if [ "$FILE_SIZE_MB" -gt 50 ]; then
-              # Use local Bot API server for large files
-              if [ -n "${{ secrets.TG_LOCAL_API_URL }}" ]; then
-                echo "File $FILE is ${FILE_SIZE_MB}MB, using local Bot API server"
-                BOT_API_URL="${{ secrets.TG_LOCAL_API_URL }}/bot${{ secrets.TG_TOKEN }}"
-                MAX_SIZE_MB=2000
-              else
-                echo "⚠️ File $FILE is ${FILE_SIZE_MB}MB, exceeds regular API limit (50MB) and no local API configured"
-                ERROR_MSG="<b>⚠️ File Too Large</b>%0A<b>File:</b> <code>${FILE}</code>%0A<b>Size:</b> ${FILE_SIZE_MB}MB%0A<b>Limit:</b> 50MB (Regular API)%0A<b>Tip:</b> Configure local Bot API for files up to 2000MB"
-                INLINE_KEYBOARD='{"inline_keyboard":[[{"text":"📥 Download from GitHub","url":"https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.NEXT_VERSION }}"}]]}'
-                curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
-                  -d chat_id=717601421 \
-                  -d text="$ERROR_MSG" \
-                  -d parse_mode=HTML \
-                  -d reply_markup="$INLINE_KEYBOARD"
-                continue
-              fi
-            else
-              # Use regular API for smaller files
-              BOT_API_URL="https://api.telegram.org/bot${{ secrets.TG_TOKEN }}"
-              MAX_SIZE_MB=50
-            fi
-            
-            # Check if file exceeds the current API's limit
-            if [ "$FILE_SIZE_MB" -gt "$MAX_SIZE_MB" ]; then
-              echo "⚠️ File $FILE is ${FILE_SIZE_MB}MB, exceeding ${MAX_SIZE_MB}MB limit"
-              ERROR_MSG="<b>⚠️ File Too Large</b>%0A<b>File:</b> <code>${FILE}</code>%0A<b>Size:</b> ${FILE_SIZE_MB}MB%0A<b>Limit:</b> ${MAX_SIZE_MB}MB"
-              INLINE_KEYBOARD='{"inline_keyboard":[[{"text":"📥 Download from GitHub","url":"https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.NEXT_VERSION }}"}]]}'
-              curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
-                -d chat_id=717601421 \
-                -d text="$ERROR_MSG" \
-                -d parse_mode=HTML \
-                -d reply_markup="$INLINE_KEYBOARD"
-              continue
-            fi
-            
-            # Use longer timeout and retry logic for large files
-            TIMEOUT_SECONDS=300  # 5 minutes for large files
-            MAX_RETRIES=3
-            RETRY_COUNT=0
-            UPLOAD_SUCCESS=false
-            
-            while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$UPLOAD_SUCCESS" = false ]; do
-              if [ $RETRY_COUNT -gt 0 ]; then
-                echo "Retry attempt $RETRY_COUNT for $FILE..."
-                sleep 5
-              fi
-              
-              RESPONSE=$(timeout $TIMEOUT_SECONDS curl -s -X POST \
-                "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendDocument" \
-                -F chat_id=717601421 \
-                -F caption="$MSG" \
-                -F parse_mode=HTML \
-                -F document=@"$FILE" \
-                --connect-timeout 30 \
-                --max-time $TIMEOUT_SECONDS \
-                2>&1)
-              
-              CURL_EXIT_CODE=$?
-              
-              if [ $CURL_EXIT_CODE -eq 0 ] && echo "$RESPONSE" | grep -q '"ok":true'; then
-                UPLOAD_SUCCESS=true
-                break
-              fi
-              
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              echo "Upload attempt $RETRY_COUNT failed (Exit code: $CURL_EXIT_CODE)"
-            # Also send a summary message with download button at the end
-          SUMMARY_MSG="<b>🎉 Build ${{ steps.version.outputs.NEXT_VERSION }} Complete!</b>%0A<b>Total Files:</b> ${FILE_COUNT}%0A<b>Time:</b> ${DATE}"
-          SUMMARY_KEYBOARD='{"inline_keyboard":[[{"text":"📥 View All Downloads","url":"https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.NEXT_VERSION }}"}]]}'
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
-            -d chat_id=717601421 \
-            -d text="$SUMMARY_MSG" \
-            -d parse_mode=HTML \
-            -d reply_markup="$SUMMARY_KEYBOARD"
-            
-            # Check if send was successful
-            if [ "$UPLOAD_SUCCESS" = true ]; then
-              echo "✅ Successfully sent $FILE"
-            else
-              echo "❌ Failed to send $FILE after $MAX_RETRIES attempts"
-              echo "Last response: $RESPONSE"
-              
-              # Send error notification with GitHub release button
-              ERROR_MSG="<b>⚠️ File Upload Failed</b>%0A<b>File:</b> <code>${FILE}</code>%0A<b>Size:</b> ${FILE_SIZE_MB}MB%0A<b>Attempts:</b> $MAX_RETRIES"
-              INLINE_KEYBOARD='{"inline_keyboard":[[{"text":"📥 Download from GitHub","url":"https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.NEXT_VERSION }}"}]]}'
-              timeout 30 curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
-                -d chat_id=717601421 \
-                -d text="$ERROR_MSG" \
-                -d parse_mode=HTML \
-                -d reply_markup="$INLINE_KEYBOARD"
-            fi
-            
-            # Longer delay between sends for large files
-            sleep 5
-          done
-        env:
-          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          echo "Notification sent!"
