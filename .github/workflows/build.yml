@@ -67,23 +67,28 @@ jobs:
             echo "Build directory not found!"
             exit 1
           fi
-
+          
           cd build
           FILES=$(ls -la)
           COUNT=$(ls -1 | wc -l)
           echo "BUILD_COUNT=$COUNT" >> $GITHUB_OUTPUT
+          
+          FILE_LIST=$(ls -1 2>/dev/null | head -5 | tr '\n' ',' | sed 's/,$//' || echo "No files")
 
           if [ -f "../build.md" ]; then
             cp ../build.md changelog.md
           else
             echo "Automated build $(date)" > changelog.md
           fi
+          
+          # Export FILE_LIST for use in next step
+          echo "FILE_LIST=$FILE_LIST" >> $GITHUB_OUTPUT
 
       - name: Create release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.version.outputs.NEXT_VERSION }}
-          name: ReX ${{ github.event.repository.pushed_at }}
+          name: "ReX $(date -u +'%Y-%m-%d')"
           body_path: build/changelog.md
           files: build/*
           draft: false
@@ -95,28 +100,30 @@ jobs:
         if: always()
         run: |
           if [ -d "build" ]; then
-            cd build
-            FILE_LIST=$(ls -1 2>/dev/null | head -5 | tr '\n' ',' | sed 's/,$//' || echo "No files")
-            FILE_COUNT=$(ls -1 2>/dev/null | wc -l || echo "0")
             STATUS="✅ SUCCESS"
-            cd ..
           else
-            FILE_LIST="No files built"
-            FILE_COUNT="0"
             STATUS="❌ FAILED"
           fi
-
+          
           RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.NEXT_VERSION }}"
+          
+          # Escape markdown special chars in FILE_LIST for MarkdownV2 formatting
+          ESCAPED_FILE_LIST=$(echo "${{ steps.build_info.outputs.FILE_LIST }}" | sed -E 's/([\_\*\~\`\>\#\+\-\=\|\{\}\.\!])/\\\1/g')
 
-          MESSAGE="🎉 *ReVanced Build Complete*\n\n*Status:* $STATUS\n*Build:* ${{ steps.version.outputs.NEXT_VERSION }}\n*Files:* $FILE_COUNT\n*Built:* $FILE_LIST\n*Time:* $(date -u)\n\nClick below to download ⬇️"
-
-          PAYLOAD=$(jq -n --arg chat_id "717601421" \
-                          --arg text "$MESSAGE" \
-                          --arg url "$RELEASE_URL" \
-                          '{chat_id: $chat_id, text: $text, parse_mode: "Markdown", reply_markup: {inline_keyboard: [[{"text": "⬇️ Download", "url": $url}]]}}')
+          MESSAGE="🎉 *ReVanced Build Complete*\n\n_Status:_ $STATUS\n_Build:_ *${{ steps.version.outputs.NEXT_VERSION }}*\n_Files:_ *${{ steps.build_info.outputs.BUILD_COUNT }}*\n_Built:_ \`${ESCAPED_FILE_LIST}\`\n_Time:_ $(date -u '+%Y-%m-%d %H:%M:%S UTC')\n\n⬇️ Click the button below to download"
 
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "$PAYLOAD" || echo "Telegram notification failed"
-
+            -d '{
+              "chat_id": "717601421",
+              "text": "'"$MESSAGE"'",
+              "parse_mode": "MarkdownV2",
+              "disable_web_page_preview": true,
+              "reply_markup": {
+                "inline_keyboard": [[
+                  { "text": "Download Build", "url": "'"$RELEASE_URL"'" }
+                ]]
+              }
+            }' || echo "Telegram notification failed"
+          
           echo "Notification sent!"
