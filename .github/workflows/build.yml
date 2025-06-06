@@ -144,11 +144,37 @@ jobs:
             
             echo "Sending $FILE to Telegram (Size: ${FILE_SIZE} bytes)..."
             
-            # Check file size (Telegram limit is 50MB for bots)
+            # Check file size (Local Bot API limit is 2000MB, regular API is 50MB)
             FILE_SIZE_MB=$((FILE_SIZE / 1024 / 1024))
+            
+            # Determine which API endpoint to use based on file size
             if [ "$FILE_SIZE_MB" -gt 50 ]; then
-              echo "⚠️ File $FILE is ${FILE_SIZE_MB}MB, exceeding Telegram's 50MB limit"
-              ERROR_MSG="<b>⚠️ File Too Large</b>%0A<b>File:</b> <code>${FILE}</code>%0A<b>Size:</b> ${FILE_SIZE_MB}MB%0A<b>Limit:</b> 50MB"
+              # Use local Bot API server for large files
+              if [ -n "${{ secrets.TG_LOCAL_API_URL }}" ]; then
+                echo "File $FILE is ${FILE_SIZE_MB}MB, using local Bot API server"
+                BOT_API_URL="${{ secrets.TG_LOCAL_API_URL }}/bot${{ secrets.TG_TOKEN }}"
+                MAX_SIZE_MB=2000
+              else
+                echo "⚠️ File $FILE is ${FILE_SIZE_MB}MB, exceeds regular API limit (50MB) and no local API configured"
+                ERROR_MSG="<b>⚠️ File Too Large</b>%0A<b>File:</b> <code>${FILE}</code>%0A<b>Size:</b> ${FILE_SIZE_MB}MB%0A<b>Limit:</b> 50MB (Regular API)%0A<b>Tip:</b> Configure local Bot API for files up to 2000MB"
+                INLINE_KEYBOARD='{"inline_keyboard":[[{"text":"📥 Download from GitHub","url":"https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.NEXT_VERSION }}"}]]}'
+                curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
+                  -d chat_id=717601421 \
+                  -d text="$ERROR_MSG" \
+                  -d parse_mode=HTML \
+                  -d reply_markup="$INLINE_KEYBOARD"
+                continue
+              fi
+            else
+              # Use regular API for smaller files
+              BOT_API_URL="https://api.telegram.org/bot${{ secrets.TG_TOKEN }}"
+              MAX_SIZE_MB=50
+            fi
+            
+            # Check if file exceeds the current API's limit
+            if [ "$FILE_SIZE_MB" -gt "$MAX_SIZE_MB" ]; then
+              echo "⚠️ File $FILE is ${FILE_SIZE_MB}MB, exceeding ${MAX_SIZE_MB}MB limit"
+              ERROR_MSG="<b>⚠️ File Too Large</b>%0A<b>File:</b> <code>${FILE}</code>%0A<b>Size:</b> ${FILE_SIZE_MB}MB%0A<b>Limit:</b> ${MAX_SIZE_MB}MB"
               INLINE_KEYBOARD='{"inline_keyboard":[[{"text":"📥 Download from GitHub","url":"https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.NEXT_VERSION }}"}]]}'
               curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
                 -d chat_id=717601421 \
