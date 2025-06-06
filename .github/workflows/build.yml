@@ -144,32 +144,79 @@ jobs:
             
             echo "Sending $FILE to Telegram (Size: ${FILE_SIZE} bytes)..."
             
-            # Use timeout to prevent hanging
-            RESPONSE=$(timeout 60 curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendDocument" \
-              -F chat_id=717601421 \
-              -F caption="$MSG" \
-              -F parse_mode=HTML \
-              -F document=@"$FILE" 2>&1)
-            
-            CURL_EXIT_CODE=$?
-            
-            # Check if send was successful
-            if [ $CURL_EXIT_CODE -eq 0 ] && echo "$RESPONSE" | grep -q '"ok":true'; then
-              echo "✅ Successfully sent $FILE"
-            else
-              echo "❌ Failed to send $FILE (Exit code: $CURL_EXIT_CODE)"
-              echo "Response: $RESPONSE"
-              
-              # Try sending error notification
-              ERROR_MSG="<b>⚠️ File Upload Failed</b>%0A<b>File:</b> <code>${FILE}</code>%0A<b>Error:</b> Upload failed"
+            # Check file size (Telegram limit is 50MB for bots)
+            FILE_SIZE_MB=$((FILE_SIZE / 1024 / 1024))
+            if [ "$FILE_SIZE_MB" -gt 50 ]; then
+              echo "⚠️ File $FILE is ${FILE_SIZE_MB}MB, exceeding Telegram's 50MB limit"
+              ERROR_MSG="<b>⚠️ File Too Large</b>%0A<b>File:</b> <code>${FILE}</code>%0A<b>Size:</b> ${FILE_SIZE_MB}MB%0A<b>Limit:</b> 50MB"
+              INLINE_KEYBOARD='{"inline_keyboard":[[{"text":"📥 Download from GitHub","url":"https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.NEXT_VERSION }}"}]]}'
               curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
                 -d chat_id=717601421 \
                 -d text="$ERROR_MSG" \
-                -d parse_mode=HTML
+                -d parse_mode=HTML \
+                -d reply_markup="$INLINE_KEYBOARD"
+              continue
             fi
             
-            # Small delay between sends to avoid rate limiting
-            sleep 3
+            # Use longer timeout and retry logic for large files
+            TIMEOUT_SECONDS=300  # 5 minutes for large files
+            MAX_RETRIES=3
+            RETRY_COUNT=0
+            UPLOAD_SUCCESS=false
+            
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$UPLOAD_SUCCESS" = false ]; do
+              if [ $RETRY_COUNT -gt 0 ]; then
+                echo "Retry attempt $RETRY_COUNT for $FILE..."
+                sleep 5
+              fi
+              
+              RESPONSE=$(timeout $TIMEOUT_SECONDS curl -s -X POST \
+                "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendDocument" \
+                -F chat_id=717601421 \
+                -F caption="$MSG" \
+                -F parse_mode=HTML \
+                -F document=@"$FILE" \
+                --connect-timeout 30 \
+                --max-time $TIMEOUT_SECONDS \
+                2>&1)
+              
+              CURL_EXIT_CODE=$?
+              
+              if [ $CURL_EXIT_CODE -eq 0 ] && echo "$RESPONSE" | grep -q '"ok":true'; then
+                UPLOAD_SUCCESS=true
+                break
+              fi
+              
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              echo "Upload attempt $RETRY_COUNT failed (Exit code: $CURL_EXIT_CODE)"
+            # Also send a summary message with download button at the end
+          SUMMARY_MSG="<b>🎉 Build ${{ steps.version.outputs.NEXT_VERSION }} Complete!</b>%0A<b>Total Files:</b> ${FILE_COUNT}%0A<b>Time:</b> ${DATE}"
+          SUMMARY_KEYBOARD='{"inline_keyboard":[[{"text":"📥 View All Downloads","url":"https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.NEXT_VERSION }}"}]]}'
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
+            -d chat_id=717601421 \
+            -d text="$SUMMARY_MSG" \
+            -d parse_mode=HTML \
+            -d reply_markup="$SUMMARY_KEYBOARD"
+            
+            # Check if send was successful
+            if [ "$UPLOAD_SUCCESS" = true ]; then
+              echo "✅ Successfully sent $FILE"
+            else
+              echo "❌ Failed to send $FILE after $MAX_RETRIES attempts"
+              echo "Last response: $RESPONSE"
+              
+              # Send error notification with GitHub release button
+              ERROR_MSG="<b>⚠️ File Upload Failed</b>%0A<b>File:</b> <code>${FILE}</code>%0A<b>Size:</b> ${FILE_SIZE_MB}MB%0A<b>Attempts:</b> $MAX_RETRIES"
+              INLINE_KEYBOARD='{"inline_keyboard":[[{"text":"📥 Download from GitHub","url":"https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.NEXT_VERSION }}"}]]}'
+              timeout 30 curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
+                -d chat_id=717601421 \
+                -d text="$ERROR_MSG" \
+                -d parse_mode=HTML \
+                -d reply_markup="$INLINE_KEYBOARD"
+            fi
+            
+            # Longer delay between sends for large files
+            sleep 5
           done
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
