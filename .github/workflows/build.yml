@@ -1,28 +1,23 @@
 name: Build Modules
-
 on:
   workflow_call:
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
       contents: write  # Fixed from 'write-all' to 'write'
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: true
-
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: "zulu"
           java-version: "17"
-
       - name: Update config
         run: |
           if git checkout origin/update build.md 2>/dev/null; then
@@ -33,7 +28,6 @@ jobs:
               fi
             fi
           fi
-
       - name: Get next version
         id: version
         run: |
@@ -44,7 +38,6 @@ jobs:
           NEXT_VERSION=$((LATEST_TAG + 1))
           echo "NEXT_VERSION=$NEXT_VERSION" >> $GITHUB_OUTPUT
           echo "Next version will be: $NEXT_VERSION"
-
       - name: Build modules and APKs
         run: |
           if [ -f "config.json" ]; then
@@ -59,7 +52,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           NEXT_VER_CODE: ${{ steps.version.outputs.NEXT_VERSION }}
-
       - name: Prepare build output
         id: build_info
         run: |
@@ -67,19 +59,16 @@ jobs:
             echo "Build directory not found!"
             exit 1
           fi
-
           cd build
           FILES=$(ls -1 | grep '\.apk$' | tr '\n' ',' | sed 's/,$//')
           COUNT=$(ls -1 | grep '\.apk$' | wc -l)
           echo "BUILD_COUNT=$COUNT" >> $GITHUB_OUTPUT
           echo "BUILD_FILES=$FILES" >> $GITHUB_OUTPUT
-
           if [ -f "../build.md" ]; then
             cp ../build.md changelog.md
           else
             echo "Automated build $(date)" > changelog.md
           fi
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
@@ -91,23 +80,58 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Send Telegram Message with Attachments
         if: always()
         run: |
           cd build
+          
+          # Check if APK files exist
+          if ! ls *.apk >/dev/null 2>&1; then
+            echo "No APK files found in build directory"
+            # Send failure message
+            STATUS="❌ FAILED - No APK files found"
+            DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
+            MSG="<b>🚫 ReVanced Build Failed</b>%0A<b>Status:</b> ${STATUS}%0A<b>Build:</b> ${{ steps.version.outputs.NEXT_VERSION }}%0A<b>Time:</b> ${DATE}"
+            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
+              -d chat_id=717601421 \
+              -d text="$MSG" \
+              -d parse_mode=HTML
+            exit 0
+          fi
+          
+          # Get file info
           FILES=$(ls -1 *.apk 2>/dev/null)
           FILE_COUNT=$(echo "$FILES" | wc -l)
-          FILE_NAMES=$(echo "$FILES" | paste -sd "," -)
           STATUS="✅ SUCCESS"
           DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
-
-          MSG="<b>🎉 ReVanced Build Complete</b>%0A<b>Status:</b> ${STATUS}%0A<b>Build:</b> ${{ steps.version.outputs.NEXT_VERSION }}%0A<b>Files:</b> ${FILE_COUNT}%0A<b>Built:</b> ${FILE_NAMES}%0A<b>Time:</b> ${DATE}"
-
+          
+          # Send first file with full message, rest with just filename
+          FIRST_FILE=true
           for FILE in $FILES; do
-            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendDocument" \
+            if [ "$FIRST_FILE" = true ]; then
+              MSG="<b>🎉 ReVanced Build Complete</b>%0A<b>Status:</b> ${STATUS}%0A<b>Build:</b> ${{ steps.version.outputs.NEXT_VERSION }}%0A<b>Files:</b> ${FILE_COUNT}%0A<b>Time:</b> ${DATE}%0A%0A📱 <code>${FILE}</code>"
+              FIRST_FILE=false
+            else
+              MSG="📱 <code>${FILE}</code>"
+            fi
+            
+            echo "Sending $FILE to Telegram..."
+            RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendDocument" \
               -F chat_id=717601421 \
               -F caption="$MSG" \
               -F parse_mode=HTML \
-              -F document=@"$FILE"
+              -F document=@"$FILE")
+            
+            # Check if send was successful
+            if echo "$RESPONSE" | grep -q '"ok":true'; then
+              echo "✅ Successfully sent $FILE"
+            else
+              echo "❌ Failed to send $FILE"
+              echo "Response: $RESPONSE"
+            fi
+            
+            # Small delay between sends to avoid rate limiting
+            sleep 2
           done
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
