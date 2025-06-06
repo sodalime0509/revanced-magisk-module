@@ -8,7 +8,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write-all
+      contents: write  # Fixed from 'write-all' to 'write'
 
     steps:
       - name: Checkout repository
@@ -84,14 +84,13 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.version.outputs.NEXT_VERSION }}
-          name: ReX ${{ github.event.head_commit.timestamp || env.RELEASE_DATE }}
+          name: ReX ${{ steps.version.outputs.NEXT_VERSION }}
           body_path: build/changelog.md
           files: build/*
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_DATE: ${{ github.event.repository.pushed_at }}
 
       - name: Send Telegram Message with Attachments
         if: always()
