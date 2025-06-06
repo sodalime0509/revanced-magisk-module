@@ -1,31 +1,21 @@
 name: Delete Old Releases
 
 on:
-  schedule:
-    - cron: '0 16 * * *'  # daily at 01:15 UTC
   workflow_dispatch:
 
 jobs:
-  delete-old:
+  cleanup:
     runs-on: ubuntu-latest
     steps:
-      - name: Install GitHub CLI
-        run: |
-          sudo apt update
-          sudo apt install gh -y
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Delete all but the latest release
+      - name: Delete old releases except latest
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           releases=$(gh release list --limit 100 --json tagName,createdAt --jq 'sort_by(.createdAt) | reverse | .[1:] | .[].tagName')
-          
-          if [ -z "$releases" ]; then
-            echo "Nothing to delete!"
-            exit 0
-          fi
-
-          for tag in $releases; do
-            echo "Deleting old release: $tag"
-            gh release delete "$tag" -y
+          for release in $releases; do
+            echo "Deleting release: $release"
+            gh release delete "$release" -y
           done
