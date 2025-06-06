@@ -80,10 +80,11 @@ jobs:
           fi
 
       - name: Create release
+      - name: Create release
         uses: softprops/action-gh-release@v1
         with:
-         tag_name: ${{ steps.version.outputs.NEXT_VERSION }}
-         name: "ReX $(date -u +'%Y-%m-%d')"
+          tag_name: ${{ steps.version.outputs.NEXT_VERSION }}
+          name: "ReX $(date -u +'%Y-%m-%d')"
           body_path: build/changelog.md
           files: build/*
           draft: false
@@ -93,33 +94,34 @@ jobs:
 
 
       - name: Send Telegram notification
-        if: always()
-        run: |
-          if [ -d "build" ]; then
-            cd build
-            FILE_LIST=$(ls -1 2>/dev/null | head -5 | tr '\n' ',' | sed 's/,$//' || echo "No files")
-            FILE_COUNT=$(ls -1 2>/dev/null | wc -l || echo "0")
-            STATUS="SUCCESS"
-            cd ..
-          else
-            FILE_LIST="No files built"
-            FILE_COUNT="0"
-            STATUS="FAILED"
-          fi
-          
-          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.NEXT_VERSION }}"
-          
-          MESSAGE="ReVanced Build Complete 
-          Status: $STATUS 
-          Build: ${{ steps.version.outputs.NEXT_VERSION }} 
-          Files: $FILE_COUNT 
-          Release: $RELEASE_URL 
-          Built: $FILE_LIST 
-          Time: $(date -u)"
+  if: always()
+  run: |
+    if [ -d "build" ]; then
+      cd build
+      FILE_LIST=$(ls -1 2>/dev/null | head -5 | tr '\n' ',' | sed 's/,$//' || echo "No files")
+      FILE_COUNT=$(ls -1 2>/dev/null | wc -l || echo "0")
+      STATUS="✅ SUCCESS"
+      cd ..
+    else
+      FILE_LIST="No files built"
+      FILE_COUNT="0"
+      STATUS="❌ FAILED"
+    fi
 
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN}}/sendMessage" \
-            -d "chat_id=717601421" \
-            -d "text=$MESSAGE" \
-            -d "disable_web_page_preview=true" || echo "Telegram notification failed"
-          
-          echo "Notification sent!"
+    RELEASE_URL="https://github.com/${{ github.repository }}/releases/latest"
+
+    MESSAGE="*ReX Build Notification* 🚀\n\
+${STATUS}\n\
+*Files:* $FILE_COUNT\n\
+*Tag:* \`${{ steps.version.outputs.NEXT_VERSION }}\`\n\
+*Built:* $FILE_LIST\n\
+*Date:* $(date -u +'%Y-%m-%d %H:%M UTC')"
+
+    curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
+      -d "chat_id=717601421" \
+      -d "text=$MESSAGE" \
+      -d "parse_mode=Markdown" \
+      -d "disable_web_page_preview=true" \
+      -d "reply_markup={\"inline_keyboard\":[[{\"text\":\"📥 Download\",\"url\":\"$RELEASE_URL\"}]]}" || echo "Telegram notification failed"
+
+    echo "Notification sent!"
