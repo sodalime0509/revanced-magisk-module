@@ -8,7 +8,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write-all
 
     steps:
       - name: Checkout repository
@@ -43,6 +43,7 @@ jobs:
           fi
           NEXT_VERSION=$((LATEST_TAG + 1))
           echo "NEXT_VERSION=$NEXT_VERSION" >> $GITHUB_OUTPUT
+          echo "Next version will be: $NEXT_VERSION"
 
       - name: Build modules and APKs
         run: |
@@ -62,54 +63,52 @@ jobs:
       - name: Prepare build output
         id: build_info
         run: |
-          mkdir -p build
-          cd build
-          COUNT=$(ls -1 2>/dev/null | wc -l || echo "0")
-          echo "BUILD_COUNT=$COUNT" >> $GITHUB_OUTPUT
-
-          if [ -f ../build.md ]; then
-            cp ../build.md changelog.md
-          else
-            echo "Automated build $(date -u)" > changelog.md
+          if [ ! -d "build" ]; then
+            echo "Build directory not found!"
+            exit 1
           fi
 
-      - name: Create release
+          cd build
+          FILES=$(ls -1 | grep '\.apk$' | tr '\n' ',' | sed 's/,$//')
+          COUNT=$(ls -1 | grep '\.apk$' | wc -l)
+          echo "BUILD_COUNT=$COUNT" >> $GITHUB_OUTPUT
+          echo "BUILD_FILES=$FILES" >> $GITHUB_OUTPUT
+
+          if [ -f "../build.md" ]; then
+            cp ../build.md changelog.md
+          else
+            echo "Automated build $(date)" > changelog.md
+          fi
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.version.outputs.NEXT_VERSION }}
-          name: ReX ${{ github.event.repository.updated_at }}
+          name: ReX ${{ github.event.head_commit.timestamp || env.RELEASE_DATE }}
           body_path: build/changelog.md
           files: build/*
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_DATE: ${{ github.event.repository.pushed_at }}
 
-      - name: Send Telegram notification with APKs
+      - name: Send Telegram Message with Attachments
         if: always()
         run: |
-          FILES=$(find build -type f -name "*.apk")
+          cd build
+          FILES=$(ls -1 *.apk 2>/dev/null)
+          FILE_COUNT=$(echo "$FILES" | wc -l)
+          FILE_NAMES=$(echo "$FILES" | paste -sd "," -)
+          STATUS="✅ SUCCESS"
+          DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
 
-          if [ -z "$FILES" ]; then
-            MESSAGE="❌ <b>Build Failed</b>\n\nNo APKs were built."
-            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
-              -d chat_id=717601421 \
-              -d parse_mode="HTML" \
-              --data-urlencode "text=$MESSAGE"
-          else
-            FILE_LIST=$(basename -a $FILES | tr '\n' ', ' | sed 's/, $//')
-            COUNT=$(echo "$FILES" | wc -l)
-            VERSION=${{ steps.version.outputs.NEXT_VERSION }}
-            MESSAGE="🎉 <b>ReVanced Build Complete</b>\n\n<b>Status:</b> ✅ SUCCESS\n<b>Build:</b> $VERSION\n<b>Files:</b> $COUNT\n<b>Built:</b> $FILE_LIST\n<b>Time:</b> $(date -u +'%Y-%m-%d %H:%M UTC')"
+          MSG="<b>🎉 ReVanced Build Complete</b>%0A<b>Status:</b> ${STATUS}%0A<b>Build:</b> ${{ steps.version.outputs.NEXT_VERSION }}%0A<b>Files:</b> ${FILE_COUNT}%0A<b>Built:</b> ${FILE_NAMES}%0A<b>Time:</b> ${DATE}"
 
-            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
-              -d chat_id=717601421 \
-              -d parse_mode="HTML" \
-              --data-urlencode "text=$MESSAGE"
-
-            for file in $FILES; do
-              curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendDocument" \
-                -F chat_id=717601421 \
-                -F document=@"$file"
-            done
-          fi
+          for FILE in $FILES; do
+            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendDocument" \
+              -F chat_id=717601421 \
+              -F caption="$MSG" \
+              -F parse_mode=HTML \
+              -F document=@"$FILE"
+          done
