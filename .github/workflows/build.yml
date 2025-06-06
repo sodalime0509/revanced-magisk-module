@@ -83,10 +83,22 @@ jobs:
       - name: Send Telegram Message with Attachments
         if: always()
         run: |
-          cd build
+          # Check if build directory exists
+          if [ ! -d "build" ]; then
+            echo "Build directory not found!"
+            # Send failure message
+            STATUS="❌ FAILED - Build directory not found"
+            DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
+            MSG="<b>🚫 ReVanced Build Failed</b>%0A<b>Status:</b> ${STATUS}%0A<b>Build:</b> ${{ steps.version.outputs.NEXT_VERSION }}%0A<b>Time:</b> ${DATE}"
+            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
+              -d chat_id=717601421 \
+              -d text="$MSG" \
+              -d parse_mode=HTML
+            exit 0
+          fi
           
-          # Check if APK files exist
-          if ! ls *.apk >/dev/null 2>&1; then
+          # Check if APK files exist in build directory
+          if ! ls build/*.apk >/dev/null 2>&1; then
             echo "No APK files found in build directory"
             # Send failure message
             STATUS="❌ FAILED - No APK files found"
@@ -100,14 +112,29 @@ jobs:
           fi
           
           # Get file info
+          cd build
           FILES=$(ls -1 *.apk 2>/dev/null)
           FILE_COUNT=$(echo "$FILES" | wc -l)
           STATUS="✅ SUCCESS"
           DATE=$(date -u '+%Y-%m-%d %H:%M UTC')
           
+          echo "Found $FILE_COUNT APK files to send"
+          
           # Send first file with full message, rest with just filename
           FIRST_FILE=true
           for FILE in $FILES; do
+            # Check if file actually exists and is readable
+            if [ ! -f "$FILE" ]; then
+              echo "⚠️ File $FILE not found, skipping..."
+              continue
+            fi
+            
+            FILE_SIZE=$(stat -c%s "$FILE" 2>/dev/null || echo "0")
+            if [ "$FILE_SIZE" -eq 0 ]; then
+              echo "⚠️ File $FILE is empty, skipping..."
+              continue
+            fi
+            
             if [ "$FIRST_FILE" = true ]; then
               MSG="<b>🎉 ReVanced Build Complete</b>%0A<b>Status:</b> ${STATUS}%0A<b>Build:</b> ${{ steps.version.outputs.NEXT_VERSION }}%0A<b>Files:</b> ${FILE_COUNT}%0A<b>Time:</b> ${DATE}%0A%0A📱 <code>${FILE}</code>"
               FIRST_FILE=false
@@ -115,23 +142,34 @@ jobs:
               MSG="📱 <code>${FILE}</code>"
             fi
             
-            echo "Sending $FILE to Telegram..."
-            RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendDocument" \
+            echo "Sending $FILE to Telegram (Size: ${FILE_SIZE} bytes)..."
+            
+            # Use timeout to prevent hanging
+            RESPONSE=$(timeout 60 curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendDocument" \
               -F chat_id=717601421 \
               -F caption="$MSG" \
               -F parse_mode=HTML \
-              -F document=@"$FILE")
+              -F document=@"$FILE" 2>&1)
+            
+            CURL_EXIT_CODE=$?
             
             # Check if send was successful
-            if echo "$RESPONSE" | grep -q '"ok":true'; then
+            if [ $CURL_EXIT_CODE -eq 0 ] && echo "$RESPONSE" | grep -q '"ok":true'; then
               echo "✅ Successfully sent $FILE"
             else
-              echo "❌ Failed to send $FILE"
+              echo "❌ Failed to send $FILE (Exit code: $CURL_EXIT_CODE)"
               echo "Response: $RESPONSE"
+              
+              # Try sending error notification
+              ERROR_MSG="<b>⚠️ File Upload Failed</b>%0A<b>File:</b> <code>${FILE}</code>%0A<b>Error:</b> Upload failed"
+              curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
+                -d chat_id=717601421 \
+                -d text="$ERROR_MSG" \
+                -d parse_mode=HTML
             fi
             
             # Small delay between sends to avoid rate limiting
-            sleep 2
+            sleep 3
           done
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
