@@ -27,51 +27,22 @@ jobs:
         id: date
         run: echo "TODAY=$(date -u +'%Y-%m-%d')" >> $GITHUB_OUTPUT
 
-      - name: Update config
-        run: |
-          git fetch origin update || true
-          git checkout origin/update -- build.md || echo "No build.md found on update branch"
-
-          if [ -f "./build.sh" ] && [ -f "config.toml" ]; then
-            UPDATE_CFG=$(./build.sh config.toml --config-update 2>/dev/null || echo "")
-            if [ -n "$UPDATE_CFG" ]; then
-              echo "$UPDATE_CFG" > config.json
-              echo "Using updated config from build.md"
-            else
-              echo "No config update found, will use config.toml"
-            fi
-          else
-            echo "Missing build.sh or config.toml"
-            exit 1
-          fi
-
-      - name: Get ReVanced patches version
+      - name: Extract ReVanced patches version
         id: patch_version
         run: |
-          VERSION=$(grep -oP '(?<=version = ")[^"]+' patches/revanced-patches/build.gradle.kts || echo "")
-          echo "PATCH_VER=$VERSION" >> $GITHUB_OUTPUT
+          VERSION=$(grep -oP '(?<=version = ")[^"]+' patches/revanced-patches/build.gradle.kts || echo "unknown")
+          echo "PATCH_VERSION=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Check previous ReVanced patches version
-        id: check_previous_patch
+      - name: Update config
         run: |
-          STORED_VERSION=$(cat .patch_version 2>/dev/null || echo "")
-          echo "LAST_PATCH_VERSION=$STORED_VERSION"
-          echo "CURRENT_PATCH_VERSION=${{ steps.patch_version.outputs.PATCH_VER }}"
-
-          if [ "$STORED_VERSION" != "${{ steps.patch_version.outputs.PATCH_VER }}" ]; then
-            echo "BUILD=true" >> $GITHUB_OUTPUT
-          else
-            echo "BUILD=false" >> $GITHUB_OUTPUT
+          if git checkout origin/update build.md 2>/dev/null; then
+            if [ -f "./build.sh" ] && [ -f "config.toml" ]; then
+              UPDATE_CFG=$(./build.sh config.toml --config-update 2>/dev/null || echo "")
+              if [ -n "$UPDATE_CFG" ]; then
+                echo "$UPDATE_CFG" > config.json
+              fi
+            fi
           fi
-
-      - name: Stop if patch version is unchanged
-        if: steps.check_previous_patch.outputs.BUILD == 'false'
-        run: |
-          echo "No patch update detected. Skipping build."
-          exit 0
-
-      - name: Save new ReVanced patches version
-        run: echo "${{ steps.patch_version.outputs.PATCH_VER }}" > .patch_version
 
       - name: Get next version
         id: version
@@ -88,9 +59,11 @@ jobs:
         run: |
           if [ -f "config.json" ]; then
             ./build.sh config.json
-          else
-            echo "Using fallback config.toml"
+          elif [ -f "config.toml" ]; then
             ./build.sh config.toml
+          else
+            echo "No config file found!"
+            exit 1
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -119,7 +92,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.date.outputs.TODAY }}
-          name: ReX ${{ steps.date.outputs.TODAY }}
+          name: ReX ${{ steps.patch_version.outputs.PATCH_VERSION }}
           body_path: build/changelog.md
           files: build/*
           draft: false
@@ -150,6 +123,7 @@ jobs:
           Files: $FILE_COUNT 
           Release: $RELEASE_URL 
           Built: $FILE_LIST 
+          Patches: v${{ steps.patch_version.outputs.PATCH_VERSION }} 
           Time: $(date -u)"
 
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
