@@ -109,23 +109,23 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Send Telegram notification
-        if: always()
-        run: |
-          if [ -d "build" ]; then
-            cd build
-            FILE_LIST=$(ls -1 2>/dev/null | head -5 | tr '\n' ',' | sed 's/,$//' || echo "No files")
-            FILE_COUNT=$(ls -1 2>/dev/null | wc -l || echo "0")
-            STATUS="SUCCESS"
-            cd ..
-          else
-            FILE_LIST="No files built"
-            FILE_COUNT="0"
-            STATUS="FAILED"
-          fi
+  if: always()
+  run: |
+    if [ -d "build" ]; then
+      cd build
+      FILE_LIST=$(ls -1 2>/dev/null | head -5 | tr '\n' ',' | sed 's/,$//' || echo "No files")
+      FILE_COUNT=$(ls -1 2>/dev/null | wc -l || echo "0")
+      STATUS="SUCCESS"
+      cd ..
+    else
+      FILE_LIST="No files built"
+      FILE_COUNT="0"
+      STATUS="FAILED"
+    fi
 
-          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ steps.date.outputs.TODAY }}"
-          VERSION="${{ steps.revanced.outputs.VERSION }}"
-          CHANGELOG="${{ steps.revanced.outputs.CHANGELOG }}"
+    RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ steps.date.outputs.TODAY }}"
+    VERSION="${{ steps.revanced.outputs.VERSION }}"
+    CHANGELOG="${{ steps.revanced.outputs.CHANGELOG }}"
 
-          # Escape Telegram Markdown characters
-          ESCAPED_CHANGELOG=$(echo "$CHANGELOG" | sed -e 's/\*/\\*/g' -e 's/_/\\_/g' -e 's/`/\\`/g' -e 's/
+    # Escape Markdown
+    ESCAPED_CHANGELOG=$(echo "$CHANGELOG" | sed -e 's/\*/\\*/g' -e 's/_/\\_/g' -e 's/`/\\`/g' -e 's/
