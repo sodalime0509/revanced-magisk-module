@@ -11,20 +11,22 @@ jobs:
     permissions: write-all
     outputs:
       SHOULD_BUILD: ${{ steps.should_build.outputs.SHOULD_BUILD }}
+      LATEST_TAG: ${{ steps.latest_release.outputs.LATEST_TAG }}
     steps:
       - name: Checkout current repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: main  # Or your default branch
 
       - name: Fetch latest pre-release tag from anddea/revanced-patches
         id: latest_release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          latest_tag=$(gh api repos/anddea/revanced-patches/releases --jq 'map(select(.prerelease)) | first.tag_name')
+          latest_tag=$(gh api repos/anddea/revanced-patches/releases \
+            --jq 'map(select(.prerelease)) | first.tag_name')
           echo "LATEST_TAG=$latest_tag" >> $GITHUB_OUTPUT
+          echo "Latest pre-release tag: $latest_tag"
 
       - name: Compare with stored tag in update branch
         id: should_build
@@ -32,7 +34,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git fetch origin update || true
-
+          
           if git show origin/update:build.md > old_tag.txt 2>/dev/null; then
             stored_tag=$(cat old_tag.txt)
             echo "Stored tag: $stored_tag"
@@ -59,25 +61,25 @@ jobs:
     if: ${{ needs.check.outputs.SHOULD_BUILD == '1' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout empty branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Store latest tag in update branch
+      - name: Save latest tag to update branch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          latest_tag="${{ needs.check.outputs.SHOULD_BUILD == '1' && steps.latest_release.outputs.LATEST_TAG }}"
-          echo "$latest_tag" > build.md
+          tag="${{ needs.check.outputs.LATEST_TAG }}"
+          echo "$tag" > build.md
 
-          git config user.name github-actions
-          git config user.email github-actions@github.com
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
 
           git checkout --orphan update
           git rm -rf .
           git add build.md
-          git commit -m "Update build.md with latest tag: $latest_tag"
+          git commit -m "Update to $tag"
           git push -f origin update
 
   cleanup:
@@ -89,6 +91,6 @@ jobs:
   build:
     needs: [check, cleanup]
     if: ${{ needs.check.outputs.SHOULD_BUILD == '1' }}
-    uses: ./.github/workflows/build.yml
     permissions: write-all
+    uses: ./.github/workflows/build.yml
     secrets: inherit
