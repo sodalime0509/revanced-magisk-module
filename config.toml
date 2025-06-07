@@ -42,7 +42,7 @@ archive-dlurl = "https://archive.org/download/jhc-apks/apks/com.spotify.music"
 app-name = "Music"
 patches-version = "dev" 
 patcher-args = """\
-  -OpackageNameYoutubeMusic=com.music.spotify \
+  -OpackageNameYoutubeMusic="com.music.spotify" \
 """
 included-patches = " 'MaterialYou' "
 patches-source = "anddea/revanced-patches"
