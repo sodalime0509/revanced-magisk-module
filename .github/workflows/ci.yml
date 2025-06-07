@@ -11,43 +11,29 @@ jobs:
     permissions: write-all
     outputs:
       SHOULD_BUILD: ${{ steps.should_build.outputs.SHOULD_BUILD }}
-      LATEST_TAG: ${{ steps.latest_release.outputs.LATEST_TAG }}
     steps:
-      - name: Checkout current repo
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Fetch latest pre-release tag from anddea/revanced-patches
-        id: latest_release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          latest_tag=$(gh api repos/anddea/revanced-patches/releases \
-            --jq 'map(select(.prerelease)) | first.tag_name')
-          echo "LATEST_TAG=$latest_tag" >> $GITHUB_OUTPUT
-          echo "Latest pre-release tag: $latest_tag"
-
-      - name: Compare with stored tag in update branch
+      - name: Should build?
         id: should_build
+        shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git fetch origin update || true
-          
-          if git show origin/update:build.md > old_tag.txt 2>/dev/null; then
-            stored_tag=$(cat old_tag.txt)
-            echo "Stored tag: $stored_tag"
-            if [ "$stored_tag" != "${{ steps.latest_release.outputs.LATEST_TAG }}" ]; then
-              echo "New tag detected"
+          if ! git checkout origin/update build.md; then
+            echo "first time building!"
+            echo "SHOULD_BUILD=1" >> $GITHUB_OUTPUT
+          else
+            UPDATE_CFG=$(./build.sh config.toml --config-update)
+            if [ "$UPDATE_CFG" ]; then
+              echo "'$UPDATE_CFG'"
               echo "SHOULD_BUILD=1" >> $GITHUB_OUTPUT
             else
-              echo "No new tag"
               echo "SHOULD_BUILD=0" >> $GITHUB_OUTPUT
             fi
-          else
-            echo "First time or missing update branch"
-            echo "SHOULD_BUILD=1" >> $GITHUB_OUTPUT
           fi
 
       - name: Clear older workflow runs
@@ -55,32 +41,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh run list -L400 --json databaseId -q '.[].databaseId' | tail -n+10 | xargs -IID gh api "repos/$GITHUB_REPOSITORY/actions/runs/ID" -X DELETE || :
-
-  update-tag:
-    needs: check
-    if: ${{ needs.check.outputs.SHOULD_BUILD == '1' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout empty branch
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Save latest tag to update branch
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          tag="${{ needs.check.outputs.LATEST_TAG }}"
-          echo "$tag" > build.md
-
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-
-          git checkout --orphan update
-          git rm -rf .
-          git add build.md
-          git commit -m "Update to $tag"
-          git push -f origin update
 
   cleanup:
     needs: check
