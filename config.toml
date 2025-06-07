@@ -41,9 +41,6 @@ archive-dlurl = "https://archive.org/download/jhc-apks/apks/com.spotify.music"
 [Music-Extended]
 app-name = "Music"
 patches-version = "dev" 
-patcher-args = """\
-  -OpackageNameYoutubeMusic=custom \
-"""
 included-patches = " 'MaterialYou' "
 patches-source = "anddea/revanced-patches"
 cli-source = "inotia00/revanced-cli"
