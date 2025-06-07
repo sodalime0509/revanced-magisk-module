@@ -34,6 +34,7 @@ jobs:
             else
               echo "SHOULD_BUILD=0" >> $GITHUB_OUTPUT
             fi
+          fi
 
       - name: Clear older workflow runs
         env:
