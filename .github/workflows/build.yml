@@ -23,6 +23,44 @@ jobs:
           distribution: "zulu"
           java-version: "17"
 
+      # 🆕 Check latest pre-release tag from anddea/revanced-patches
+      - name: Check latest patch version
+        id: latest_patch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p build
+          TAG_FILE=build/.last-tag
+
+          # Get latest pre-release tag
+          latest_tag=$(gh api repos/anddea/revanced-patches/releases \
+            --jq 'map(select(.prerelease)) | first.tag_name')
+          echo "Latest tag: $latest_tag"
+          echo "LATEST_TAG=$latest_tag" >> $GITHUB_OUTPUT
+
+          # Compare with stored tag
+          if [ -f "$TAG_FILE" ]; then
+            stored_tag=$(cat "$TAG_FILE")
+            echo "Stored tag: $stored_tag"
+          else
+            stored_tag="none"
+            echo "No tag stored yet"
+          fi
+
+          if [ "$stored_tag" = "$latest_tag" ]; then
+            echo "No update in patch version. Skipping build."
+            echo "SKIP_BUILD=true" >> $GITHUB_ENV
+          else
+            echo "$latest_tag" > $TAG_FILE
+            echo "SKIP_BUILD=false" >> $GITHUB_ENV
+          fi
+
+      - name: Exit if no new patch version
+        if: env.SKIP_BUILD == 'true'
+        run: |
+          echo "Build skipped because no new patch version found."
+          exit 0
+
       - name: Get today's date
         id: date
         run: echo "TODAY=$(date -u +'%Y-%m-%d')" >> $GITHUB_OUTPUT
