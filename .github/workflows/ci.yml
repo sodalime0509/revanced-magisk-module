@@ -42,14 +42,8 @@ jobs:
         run: |
           gh run list -L400 --json databaseId -q '.[].databaseId' | tail -n+10 | xargs -IID gh api "repos/$GITHUB_REPOSITORY/actions/runs/ID" -X DELETE || :
 
-  cleanup:
-    needs: check
-    if: ${{ needs.check.outputs.SHOULD_BUILD == '1' }}
-    uses: ./.github/workflows/delete-old-releases.yml
-    secrets: inherit
-
   build:
-    needs: [check, cleanup]
+    needs: check
     if: ${{ needs.check.outputs.SHOULD_BUILD == '1' }}
     permissions: write-all
     uses: ./.github/workflows/build.yml
