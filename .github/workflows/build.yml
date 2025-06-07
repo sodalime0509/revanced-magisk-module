@@ -27,6 +27,21 @@ jobs:
         id: date
         run: echo "TODAY=$(date -u +'%Y-%m-%d')" >> $GITHUB_OUTPUT
 
+      - name: Get ReVanced Extended version and changelog
+        id: rex
+        run: |
+          VERSION=$(grep -oP '"version":\s*"\K[^"]+' patches/patches.json | head -n 1 || echo "unknown")
+          echo "REVANCED_EXTENDED_VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+          CHANGELOG=$(curl -s https://api.github.com/repos/inotia00/revanced-patches/releases | jq -r 'map(select(.prerelease == true))[0].body' || echo "Changelog unavailable")
+          
+          {
+            echo "### ReVanced Extended Version: $VERSION"
+            echo ""
+            echo "$CHANGELOG"
+            echo ""
+          } > tmp_changelog.md
+
       - name: Update config
         run: |
           if git checkout origin/update build.md 2>/dev/null; then
@@ -76,11 +91,16 @@ jobs:
           COUNT=$(ls -1 | grep '\.apk$' | wc -l)
           echo "BUILD_COUNT=$COUNT" >> $GITHUB_OUTPUT
           echo "BUILD_FILES=$FILES" >> $GITHUB_OUTPUT
+
           if [ -f "../build.md" ]; then
             cp ../build.md changelog.md
           else
             echo "Automated build $(date)" > changelog.md
           fi
+
+          # Append ReVanced Extended changelog
+          echo -e "\n\n---\n\n" >> changelog.md
+          cat ../tmp_changelog.md >> changelog.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -94,38 +114,35 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Fetch ReVanced Extended pre-release version and changelog
-        id: revanced
-        run: |
-          API_URL="https://api.github.com/repos/anddea/revanced-patches/releases"
-          RESPONSE=$(curl -s "$API_URL" | jq '[.[] | select(.prerelease)][0]')
-          
-          VERSION=$(echo "$RESPONSE" | jq -r '.tag_name')
-          CHANGELOG=$(echo "$RESPONSE" | jq -r '.body')
-
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGELOG" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
       - name: Send Telegram notification
-  if: always()
-  run: |
-    if [ -d "build" ]; then
-      cd build
-      FILE_LIST=$(ls -1 2>/dev/null | head -5 | tr '\n' ',' | sed 's/,$//' || echo "No files")
-      FILE_COUNT=$(ls -1 2>/dev/null | wc -l || echo "0")
-      STATUS="SUCCESS"
-      cd ..
-    else
-      FILE_LIST="No files built"
-      FILE_COUNT="0"
-      STATUS="FAILED"
-    fi
+        if: always()
+        run: |
+          if [ -d "build" ]; then
+            cd build
+            FILE_LIST=$(ls -1 2>/dev/null | head -5 | tr '\n' ',' | sed 's/,$//' || echo "No files")
+            FILE_COUNT=$(ls -1 2>/dev/null | wc -l || echo "0")
+            STATUS="SUCCESS"
+            cd ..
+          else
+            FILE_LIST="No files built"
+            FILE_COUNT="0"
+            STATUS="FAILED"
+          fi
 
-    RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ steps.date.outputs.TODAY }}"
-    VERSION="${{ steps.revanced.outputs.VERSION }}"
-    CHANGELOG="${{ steps.revanced.outputs.CHANGELOG }}"
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ steps.date.outputs.TODAY }}"
 
-    # Escape Markdown
-    ESCAPED_CHANGELOG=$(echo "$CHANGELOG" | sed -e 's/\*/\\*/g' -e 's/_/\\_/g' -e 's/`/\\`/g' -e 's/
+          MESSAGE="ReVanced Build Complete
+          Status: $STATUS
+          Build: ${{ steps.date.outputs.TODAY }}
+          Files: $FILE_COUNT
+          Version: ${{ steps.rex.outputs.REVANCED_EXTENDED_VERSION }}
+          Release: $RELEASE_URL
+          Built: $FILE_LIST
+          Time: $(date -u)"
+
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
+            -d "chat_id=717601421" \
+            -d "text=$MESSAGE" \
+            -d "disable_web_page_preview=true" || echo "Telegram notification failed"
+
+          echo "Notification sent!"
