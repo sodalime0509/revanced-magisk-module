@@ -94,6 +94,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Fetch ReVanced Extended pre-release version and changelog
+        id: revanced
+        run: |
+          API_URL="https://api.github.com/repos/anddea/revanced-patches/releases"
+          RESPONSE=$(curl -s "$API_URL" | jq '[.[] | select(.prerelease)][0]')
+          
+          VERSION=$(echo "$RESPONSE" | jq -r '.tag_name')
+          CHANGELOG=$(echo "$RESPONSE" | jq -r '.body')
+
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Send Telegram notification
         if: always()
         run: |
@@ -110,18 +124,8 @@ jobs:
           fi
 
           RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ steps.date.outputs.TODAY }}"
+          VERSION="${{ steps.revanced.outputs.VERSION }}"
+          CHANGELOG="${{ steps.revanced.outputs.CHANGELOG }}"
 
-          MESSAGE="ReVanced Build Complete 
-          Status: $STATUS 
-          Build: ${{ steps.date.outputs.TODAY }} 
-          Files: $FILE_COUNT 
-          Release: $RELEASE_URL 
-          Built: $FILE_LIST 
-          Time: $(date -u)"
-
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
-            -d "chat_id=717601421" \
-            -d "text=$MESSAGE" \
-            -d "disable_web_page_preview=true" || echo "Telegram notification failed"
-
-          echo "Notification sent!"
+          # Escape Telegram Markdown characters
+          ESCAPED_CHANGELOG=$(echo "$CHANGELOG" | sed -e 's/\*/\\*/g' -e 's/_/\\_/g' -e 's/`/\\`/g' -e 's/
