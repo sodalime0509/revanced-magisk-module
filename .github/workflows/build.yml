@@ -150,7 +150,6 @@ jobs:
           fi
 
           MESSAGE="🔧 ReVanced Build Complete
-
 📦 Build: ReX ${PATCHES_VER}
 ✅ Status: ${STATUS}
 📁 Files: ${FILE_COUNT}
