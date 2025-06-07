@@ -126,8 +126,8 @@ jobs:
         run: |
           if [ -d "build" ]; then
             cd build
-            FILE_LIST=$(ls -1 2>/dev/null | head -5 | tr '\n' ',' | sed 's/,$//')
-            FILE_COUNT=$(ls -1 2>/dev/null | wc -l)
+            FILE_LIST=$(ls -1 2>/dev/null | head -5 | tr '\n' ',' | sed 's/,$//' || echo "No files")
+            FILE_COUNT=$(ls -1 2>/dev/null | wc -l || echo "0")
             STATUS="SUCCESS"
             cd ..
           else
@@ -137,26 +137,18 @@ jobs:
           fi
 
           RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ steps.date.outputs.TODAY }}"
-          PATCHES_VER="${{ steps.patches_version.outputs.PATCHES_VERSION }}"
 
-          if [ -z "$PATCHES_VER" ] || [ "$PATCHES_VER" = "unknown" ]; then
-            PATCHES_VER="latest"
-          fi
-
-          MESSAGE="🔧 ReVanced Build Complete
-📦 Build: ReX ${PATCHES_VER}
-✅ Status: ${STATUS}
-📁 Files: ${FILE_COUNT}
-🔗 Release: ${RELEASE_URL}
-📋 Built: ${FILE_LIST}
-🕐 Time: $(date -u)"
-
-          echo "Sending message: $MESSAGE"
+          MESSAGE="ReVanced Build Complete 
+          Status: $STATUS 
+          Build: ${{ steps.date.outputs.TODAY }} 
+          Files: $FILE_COUNT 
+          Release: $RELEASE_URL 
+          Built: $FILE_LIST 
+          Time: $(date -u)"
 
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
-            -d chat_id=717601421 \
-            --data-urlencode text="${MESSAGE}" \
-            -d disable_web_page_preview=true \
-            -d parse_mode=HTML || echo "Telegram notification failed"
+            -d "chat_id=717601421" \
+            -d "text=$MESSAGE" \
+            -d "disable_web_page_preview=true" || echo "Telegram notification failed"
 
           echo "Notification sent!"
