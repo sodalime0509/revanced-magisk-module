@@ -12,41 +12,40 @@ jobs:
     outputs:
       SHOULD_BUILD: ${{ steps.should_build.outputs.SHOULD_BUILD }}
     steps:
-      - name: Checkout
+      - name: Checkout current repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: main  # Or your default branch
 
-      - name: Get latest ReVanced pre-release tag
+      - name: Fetch latest pre-release tag from anddea/revanced-patches
         id: latest_release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           latest_tag=$(gh api repos/anddea/revanced-patches/releases --jq 'map(select(.prerelease)) | first.tag_name')
-          echo "Latest pre-release tag: $latest_tag"
           echo "LATEST_TAG=$latest_tag" >> $GITHUB_OUTPUT
 
-      - name: Should build?
+      - name: Compare with stored tag in update branch
         id: should_build
-        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG_FILE=".github/last_revanced_tag.txt"
-          
-          # First time or tag changed
-          if [ ! -f "$TAG_FILE" ]; then
-            echo "First time build. Saving tag."
-            echo "${{ steps.latest_release.outputs.LATEST_TAG }}" > "$TAG_FILE"
-            echo "SHOULD_BUILD=1" >> $GITHUB_OUTPUT
-          else
-            prev_tag=$(cat "$TAG_FILE")
-            if [ "$prev_tag" != "${{ steps.latest_release.outputs.LATEST_TAG }}" ]; then
-              echo "Tag changed: $prev_tag → ${{ steps.latest_release.outputs.LATEST_TAG }}"
-              echo "${{ steps.latest_release.outputs.LATEST_TAG }}" > "$TAG_FILE"
+          git fetch origin update || true
+
+          if git show origin/update:build.md > old_tag.txt 2>/dev/null; then
+            stored_tag=$(cat old_tag.txt)
+            echo "Stored tag: $stored_tag"
+            if [ "$stored_tag" != "${{ steps.latest_release.outputs.LATEST_TAG }}" ]; then
+              echo "New tag detected"
               echo "SHOULD_BUILD=1" >> $GITHUB_OUTPUT
             else
-              echo "No new pre-release. Skipping build."
+              echo "No new tag"
               echo "SHOULD_BUILD=0" >> $GITHUB_OUTPUT
             fi
+          else
+            echo "First time or missing update branch"
+            echo "SHOULD_BUILD=1" >> $GITHUB_OUTPUT
           fi
 
       - name: Clear older workflow runs
@@ -54,6 +53,32 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh run list -L400 --json databaseId -q '.[].databaseId' | tail -n+10 | xargs -IID gh api "repos/$GITHUB_REPOSITORY/actions/runs/ID" -X DELETE || :
+
+  update-tag:
+    needs: check
+    if: ${{ needs.check.outputs.SHOULD_BUILD == '1' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Store latest tag in update branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          latest_tag="${{ needs.check.outputs.SHOULD_BUILD == '1' && steps.latest_release.outputs.LATEST_TAG }}"
+          echo "$latest_tag" > build.md
+
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+
+          git checkout --orphan update
+          git rm -rf .
+          git add build.md
+          git commit -m "Update build.md with latest tag: $latest_tag"
+          git push -f origin update
 
   cleanup:
     needs: check
@@ -64,6 +89,6 @@ jobs:
   build:
     needs: [check, cleanup]
     if: ${{ needs.check.outputs.SHOULD_BUILD == '1' }}
-    permissions: write-all
     uses: ./.github/workflows/build.yml
+    permissions: write-all
     secrets: inherit
