@@ -40,7 +40,6 @@ archive-dlurl = "https://archive.org/download/jhc-apks/apks/com.spotify.music"
 # https://github.com/j-hc/revanced-magisk-module/issues/554
 [Music-Extended]
 app-name = "Music"
-included-patches = "MaterialYou"
 patches-source = "anddea/revanced-patches"
 patches-version = "v3.10.0-dev.1"
 cli-source = "inotia00/revanced-cli"
@@ -51,7 +50,6 @@ apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/youtube-music"
 
 [YouTube-Extended]
 app-name = "YouTube"
-included-patches = "MaterialYou"
 version = "20.16.38"
 patches-source = "anddea/revanced-patches"
 patches-version = "v3.10.0-dev.1"
