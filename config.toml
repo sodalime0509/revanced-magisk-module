@@ -3,7 +3,7 @@ parallel-jobs = 1
 
 # add 'enabled = false' for not patching a specific app or remove it from the config
 # see https://github.com/j-hc/revanced-magisk-module/blob/main/CONFIG.md for more detailed explanations
-#patches-version = "dev"
+patches-version = "3.11-dev3"
 # you can use rvmm-config-gen to generate a config
 
 [YouTube]
