@@ -3,7 +3,7 @@ parallel-jobs = 1
 
 # add 'enabled = false' for not patching a specific app or remove it from the config
 # see https://github.com/j-hc/revanced-magisk-module/blob/main/CONFIG.md for more detailed explanations
-
+patches-version = "dev"
 # you can use rvmm-config-gen to generate a config
 
 [YouTube]
@@ -39,8 +39,7 @@ archive-dlurl = "https://archive.org/download/jhc-apks/apks/com.spotify.music"
 
 # https://github.com/j-hc/revanced-magisk-module/issues/554
 [Music-Extended]
-app-name = "Music"
-patches-version = "dev" 
+app-name = "Music" 
 included-patches = " 'MaterialYou' "
 version = "8.18.51"
 patches-source = "anddea/revanced-patches"
@@ -52,7 +51,6 @@ apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/youtube-music"
 
 [YouTube-Extended]
 app-name = "YouTube"
-patches-version = "dev"
 included-patches = " 'MaterialYou' "
 version = "20.21.35"
 patches-source = "anddea/revanced-patches"
