@@ -6,15 +6,26 @@ on:
 jobs:
   cleanup:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Delete old releases except latest
+      - name: Install GitHub CLI
+        uses: cli/gh-action@v2
+
+      - name: Delete all releases
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          releases=$(gh release list --limit 100 --json tagName,createdAt --jq 'sort_by(.createdAt) | reverse | .[1:] | .[].tagName')
+          echo "Fetching all releases..."
+          releases=$(gh release list --limit 100 --json tagName --jq '.[].tagName')
+
+          if [ -z "$releases" ]; then
+            echo "No releases found."
+            exit 0
+          fi
+
           for release in $releases; do
             echo "Deleting release: $release"
             gh release delete "$release" -y
