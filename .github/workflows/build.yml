@@ -10,141 +10,135 @@ jobs:
     permissions:
       contents: write
 
-    steps:  
-      - name: Checkout repository  
-        uses: actions/checkout@v4  
-        with:  
-          fetch-depth: 0  
-          submodules: true  
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: true
 
-      - name: Setup Java  
-        uses: actions/setup-java@v4  
-        with:  
-          distribution: "zulu"  
-          java-version: "17"  
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "zulu"
+          java-version: "17"
 
-      - name: Get today's date  
-        id: date  
-        run: echo "TODAY=$(date -u +'%Y-%m-%d')" >> $GITHUB_OUTPUT  
+      - name: Get today's date
+        id: date
+        run: echo "TODAY=$(date -u +'%Y-%m-%d')" >> $GITHUB_OUTPUT
 
       - name: Get ReVanced patches version
         id: patches_version
         run: |
-          # Try to get patches version from multiple sources
           PATCHES_VERSION=""
-          
-          # Method 1: Check if there's a patches version in config files
+
           if [ -f "config.toml" ]; then
             PATCHES_VERSION=$(grep -i "patches.*version\|version.*patches" config.toml | head -1 | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' || echo "")
           fi
-          
-          # Method 2: Check for patches jar file version
+
           if [ -z "$PATCHES_VERSION" ]; then
             PATCHES_JAR=$(find . -name "*patches*.jar" | head -1)
             if [ -n "$PATCHES_JAR" ]; then
               PATCHES_VERSION=$(echo "$PATCHES_JAR" | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' || echo "")
             fi
           fi
-          
-          # Method 3: Get latest ReVanced patches release from GitHub API
+
           if [ -z "$PATCHES_VERSION" ]; then
             PATCHES_VERSION=$(curl -s "https://api.github.com/repos/revanced/revanced-patches/releases/latest" | grep -o '"tag_name": "v[^"]*' | cut -d'v' -f2 || echo "")
           fi
-          
-          # Fallback to unknown if nothing found
+
           if [ -z "$PATCHES_VERSION" ]; then
             PATCHES_VERSION="unknown"
           fi
-          
+
           echo "PATCHES_VERSION=$PATCHES_VERSION" >> $GITHUB_OUTPUT
           echo "ReVanced patches version: $PATCHES_VERSION"
 
-      - name: Update config  
-        run: |  
-          if git checkout origin/update build.md 2>/dev/null; then  
-            if [ -f "./build.sh" ] && [ -f "config.toml" ]; then  
-              UPDATE_CFG=$(./build.sh config.toml --config-update 2>/dev/null || echo "")  
-              if [ -n "$UPDATE_CFG" ]; then  
-                echo "$UPDATE_CFG" > config.json  
-              fi  
-            fi  
-          fi  
+      - name: Update config
+        run: |
+          if git checkout origin/update build.md 2>/dev/null; then
+            if [ -f "./build.sh" ] && [ -f "config.toml" ]; then
+              UPDATE_CFG=$(./build.sh config.toml --config-update 2>/dev/null || echo "")
+              if [ -n "$UPDATE_CFG" ]; then
+                echo "$UPDATE_CFG" > config.json
+              fi
+            fi
+          fi
 
-      - name: Get next version  
-        id: version  
-        run: |  
-          LATEST_TAG=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/latest" | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4 || echo "0")  
-          if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then  
-            LATEST_TAG="0"  
-          fi  
-          NEXT_VERSION=$((LATEST_TAG + 1))  
-          echo "NEXT_VERSION=$NEXT_VERSION" >> $GITHUB_OUTPUT  
-          echo "Next version will be: $NEXT_VERSION"  
+      - name: Get next version
+        id: version
+        run: |
+          LATEST_TAG=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/latest" | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4 || echo "0")
+          if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then
+            LATEST_TAG="0"
+          fi
+          NEXT_VERSION=$((LATEST_TAG + 1))
+          echo "NEXT_VERSION=$NEXT_VERSION" >> $GITHUB_OUTPUT
+          echo "Next version will be: $NEXT_VERSION"
 
-      - name: Build modules and APKs  
-        run: |  
-          if [ -f "config.json" ]; then  
-            ./build.sh config.json  
-          elif [ -f "config.toml" ]; then  
-            ./build.sh config.toml  
-          else  
-            echo "No config file found!"  
-            exit 1  
-          fi  
-        env:  
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  
-          GITHUB_REPOSITORY: ${{ github.repository }}  
-          NEXT_VER_CODE: ${{ steps.version.outputs.NEXT_VERSION }}  
+      - name: Build modules and APKs
+        run: |
+          if [ -f "config.json" ]; then
+            ./build.sh config.json
+          elif [ -f "config.toml" ]; then
+            ./build.sh config.toml
+          else
+            echo "No config file found!"
+            exit 1
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          NEXT_VER_CODE: ${{ steps.version.outputs.NEXT_VERSION }}
 
-      - name: Prepare build output  
-        id: build_info  
-        run: |  
-          if [ ! -d "build" ]; then  
-            echo "Build directory not found!"  
-            exit 1  
-          fi  
-          cd build  
-          FILES=$(ls -1 | grep '\.apk$' | tr '\n' ',' | sed 's/,$//')  
-          COUNT=$(ls -1 | grep '\.apk$' | wc -l)  
-          echo "BUILD_COUNT=$COUNT" >> $GITHUB_OUTPUT  
-          echo "BUILD_FILES=$FILES" >> $GITHUB_OUTPUT  
-          if [ -f "../build.md" ]; then  
-            cp ../build.md changelog.md  
-          else  
-            echo "Automated build $(date)" > changelog.md  
-          fi  
+      - name: Prepare build output
+        id: build_info
+        run: |
+          if [ ! -d "build" ]; then
+            echo "Build directory not found!"
+            exit 1
+          fi
+          cd build
+          FILES=$(ls -1 | grep '\.apk$' | tr '\n' ',' | sed 's/,$//')
+          COUNT=$(ls -1 | grep '\.apk$' | wc -l)
+          echo "BUILD_COUNT=$COUNT" >> $GITHUB_OUTPUT
+          echo "BUILD_FILES=$FILES" >> $GITHUB_OUTPUT
+          if [ -f "../build.md" ]; then
+            cp ../build.md changelog.md
+          else
+            echo "Automated build $(date)" > changelog.md
+          fi
 
-      - name: Create GitHub Release  
-        uses: softprops/action-gh-release@v1  
-        with:  
-          tag_name: ${{ steps.date.outputs.TODAY }}  
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.date.outputs.TODAY }}
           name: ReX ${{ steps.patches_version.outputs.PATCHES_VERSION }}
-          body_path: build/changelog.md  
-          files: build/*  
-          draft: false  
-          prerelease: false  
-        env:  
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  
+          body_path: build/changelog.md
+          files: build/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Send Telegram notification  
-        if: always()  
-        run: |  
-          if [ -d "build" ]; then  
-            cd build  
-            FILE_LIST=$(ls -1 2>/dev/null | head -5 | tr '\n' ',' | sed 's/,$//' || echo "No files")  
-            FILE_COUNT=$(ls -1 2>/dev/null | wc -l || echo "0")  
-            STATUS="SUCCESS"  
-            cd ..  
-          else  
-            FILE_LIST="No files built"  
-            FILE_COUNT="0"  
-            STATUS="FAILED"  
-          fi  
+      - name: Send Telegram notification
+        if: always()
+        run: |
+          if [ -d "build" ]; then
+            cd build
+            FILE_LIST=$(ls -1 2>/dev/null | head -5 | tr '\n' ',' | sed 's/,$//')
+            FILE_COUNT=$(ls -1 2>/dev/null | wc -l)
+            STATUS="SUCCESS"
+            cd ..
+          else
+            FILE_LIST="No files built"
+            FILE_COUNT="0"
+            STATUS="FAILED"
+          fi
 
-          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ steps.date.outputs.TODAY }}"  
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ steps.date.outputs.TODAY }}"
           PATCHES_VER="${{ steps.patches_version.outputs.PATCHES_VERSION }}"
-          
-          # Ensure we have a patches version
+
           if [ -z "$PATCHES_VER" ] || [ "$PATCHES_VER" = "unknown" ]; then
             PATCHES_VER="latest"
           fi
@@ -159,10 +153,10 @@ jobs:
 
           echo "Sending message: $MESSAGE"
 
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \  
-            -d "chat_id=717601421" \  
-            -d "text=${MESSAGE}" \  
-            -d "disable_web_page_preview=true" \  
-            -d "parse_mode=HTML" || echo "Telegram notification failed"  
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
+            -d "chat_id=717601421" \
+            -d "text=${MESSAGE}" \
+            -d "disable_web_page_preview=true" \
+            -d "parse_mode=HTML" || echo "Telegram notification failed"
 
           echo "Notification sent!"
