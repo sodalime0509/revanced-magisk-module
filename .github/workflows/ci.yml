@@ -6,7 +6,12 @@ on:
     - cron: "0 16 * * *"
 
 jobs:
+  cleanup:
+    uses: ./.github/workflows/delete-old-releases.yml
+    secrets: inherit
+
   check:
+    needs: cleanup
     runs-on: ubuntu-latest
     permissions: write-all
     outputs:
