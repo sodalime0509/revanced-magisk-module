@@ -16,6 +16,10 @@ apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/youtube"
 uptodown-dlurl = "https://youtube.en.uptodown.com/android"
 archive-dlurl = "https://archive.org/download/jhc-apks/apks/com.google.android.youtube"
 
+[Reddit]
+apkmirror-dlurl = "https://www.apkmirror.com/apk/reddit-inc/reddit"
+# or uptodown-dlurl = "https://app.en.uptodown.com/android"
+
 [Music]
 enabled = false
 build-mode = "both"
