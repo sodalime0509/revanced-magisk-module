@@ -45,7 +45,7 @@ archive-dlurl = "https://archive.org/download/jhc-apks/apks/com.spotify.music"
 [Music-Extended]
 app-name = "Music" 
 included-patches = " 'MaterialYou' "
-version = "8.18.51"
+version = "8.24.53"
 patches-source = "anddea/revanced-patches"
 patcher-args = "-e 'GmsCore support' -OpackageNameYouTubeMusic=com.spotify.music"
 cli-source = "inotia00/revanced-cli"
