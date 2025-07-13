@@ -138,12 +138,8 @@ jobs:
             cp ../build.md changelog.md
             echo "📝 Using existing build.md as changelog"
           else
-            # Check if this is a pre-release version
-          if echo "${{ env.PATCHES_VERSION }}" | grep -q "dev\|alpha\|beta\|rc"; then
-            VERSION_TYPE="🚧 Pre-release"
-          else
+            # Removed prerelease detection - all releases are now treated as stable
             VERSION_TYPE="✅ Stable Release"
-          fi
           
           cat > changelog.md << EOF
           # ReVanced Extended ${{ env.PATCHES_VERSION }}
@@ -172,7 +168,7 @@ jobs:
           body_path: build/changelog.md
           files: build/*.apk
           draft: false
-          prerelease: ${{ contains(env.PATCHES_VERSION, 'dev') || contains(env.PATCHES_VERSION, 'alpha') || contains(env.PATCHES_VERSION, 'beta') || contains(env.PATCHES_VERSION, 'rc') }}
+          prerelease: false
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -256,12 +252,8 @@ jobs:
           RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ env.PATCHES_VERSION }}"
           REPO_URL="https://github.com/${{ github.repository }}"
 
-          # Determine version type for notification
-          if echo "${{ env.PATCHES_VERSION }}" | grep -q "dev\|alpha\|beta\|rc"; then
-            VERSION_BADGE="🚧 Pre-release"
-          else
-            VERSION_BADGE="✅ Stable"
-          fi
+          # Removed prerelease detection - all releases are now treated as stable
+          VERSION_BADGE="✅ Stable"
 
           # Create formatted message
           MESSAGE="$STATUS_EMOJI <b>ReVanced Extended Build Complete</b>
