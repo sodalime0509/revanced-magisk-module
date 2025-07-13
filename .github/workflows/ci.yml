@@ -3,54 +3,110 @@ name: CI
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 * * * *"  # Runs hourly
+    - cron: "0 */2 * * *"  # Runs every 2 hours to be less aggressive
 
 jobs:
   check:
     runs-on: ubuntu-latest
-    permissions: write-all
+    permissions:
+      contents: read
+      actions: write
     outputs:
       SHOULD_BUILD: ${{ steps.should_build.outputs.SHOULD_BUILD }}
       PATCHES_VERSION: ${{ steps.should_build.outputs.PATCHES_VERSION }}
+    
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check if new patch version is available
         id: should_build
         run: |
-          echo "Fetching latest release from Anddea..."
-          PATCHES_VERSION=$(curl -s https://api.github.com/repos/anddea/revanced-patches/releases | jq -r '.[0].tag_name')
-          echo "Latest patch: $PATCHES_VERSION"
-
-          BUILT_VERSION=""
-          if git checkout origin/update build.md 2>/dev/null && [ -f build.md ]; then
-            BUILT_VERSION=$(cat build.md)
+          echo "🔍 Checking for new ReVanced Extended patches..."
+          
+          # Fetch latest release with authentication to avoid rate limits
+          RESPONSE=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/anddea/revanced-patches/releases/latest)
+          
+          # Extract version and validate response
+          PATCHES_VERSION=$(echo "$RESPONSE" | jq -r '.tag_name // empty')
+          
+          if [ -z "$PATCHES_VERSION" ] || [ "$PATCHES_VERSION" = "null" ]; then
+            echo "❌ Failed to fetch latest version from API"
+            echo "Response: $RESPONSE"
+            exit 1
           fi
-
+          
+          echo "📦 Latest patch version: $PATCHES_VERSION"
+          
+          # Check previously built version
+          BUILT_VERSION=""
+          if git ls-remote --heads origin update | grep -q update; then
+            echo "📋 Update branch exists, checking last built version..."
+            if git checkout origin/update -- build.md 2>/dev/null && [ -f build.md ]; then
+              BUILT_VERSION=$(cat build.md | tr -d '\n\r' | xargs)
+              echo "🏷️ Previously built version: $BUILT_VERSION"
+            else
+              echo "📝 No build.md found in update branch"
+            fi
+          else
+            echo "🆕 No update branch found - first build"
+          fi
+          
+          # Compare versions
           if [ "$BUILT_VERSION" = "$PATCHES_VERSION" ]; then
-            echo "Already built this version"
+            echo "✅ Already built version $PATCHES_VERSION - skipping build"
             echo "SHOULD_BUILD=0" >> $GITHUB_OUTPUT
           else
-            echo "New version detected!"
+            echo "🚀 New version detected: $PATCHES_VERSION (previous: ${BUILT_VERSION:-none})"
             echo "SHOULD_BUILD=1" >> $GITHUB_OUTPUT
           fi
-
+          
           echo "PATCHES_VERSION=$PATCHES_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Clear older workflow runs
+      - name: Clean up old workflow runs
+        if: success()
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          sudo apt update && sudo apt install gh -y
-          gh run list -L400 --json databaseId -q '.[].databaseId' | tail -n+10 | xargs -IID gh api "repos/$GITHUB_REPOSITORY/actions/runs/ID" -X DELETE || :
+          echo "🧹 Cleaning up old workflow runs..."
+          
+          # Install GitHub CLI if not available
+          if ! command -v gh &> /dev/null; then
+            echo "Installing GitHub CLI..."
+            type -p curl >/dev/null || sudo apt update && sudo apt install curl -y
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+            sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+            sudo apt update && sudo apt install gh -y
+          fi
+          
+          # Clean up old runs (keep last 15 runs)
+          echo "Fetching workflow runs..."
+          RUNS_TO_DELETE=$(gh run list --limit 100 --json databaseId --jq '.[15:] | .[].databaseId' 2>/dev/null || echo "")
+          
+          if [ -n "$RUNS_TO_DELETE" ]; then
+            echo "Deleting old workflow runs..."
+            echo "$RUNS_TO_DELETE" | while read -r run_id; do
+              [ -n "$run_id" ] && gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" -X DELETE 2>/dev/null || true
+            done
+            echo "✅ Cleanup completed"
+          else
+            echo "ℹ️ No old runs to clean up"
+          fi
 
   build:
     needs: check
-    if: ${{ needs.check.outputs.SHOULD_BUILD == '1' }}
-    permissions: write-all
+    if: needs.check.outputs.SHOULD_BUILD == '1'
+    permissions:
+      contents: write
+      actions: read
     uses: ./.github/workflows/build.yml
     secrets: inherit
     with:
