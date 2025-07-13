@@ -76,4 +76,260 @@ jobs:
             echo "🏷️ Building ReVanced Extended with patches version: ${{ inputs.PATCHES_VERSION }}"
           fi
 
-      # ... rest of your steps remain the same ...
+      - name: Update config
+        run: |
+          echo "🔧 Updating configuration..."
+          
+          # Try to get updated config if update branch exists
+          if git ls-remote --heads origin update | grep -q update; then
+            echo "📋 Update branch found, checking for config updates..."
+            if git checkout origin/update -- build.md 2>/dev/null || git checkout origin/update build.md 2>/dev/null; then
+              echo "✅ Checked out build.md from update branch"
+            fi
+          fi
+          
+          # Check if build script and config exist
+          if [ -f "./build.sh" ] && [ -f "config.toml" ]; then
+            echo "🔄 Running config update..."
+            UPDATE_CFG=$(./build.sh config.toml --config-update 2>/dev/null || echo "")
+            if [ -n "$UPDATE_CFG" ]; then
+              echo "$UPDATE_CFG" > config.json
+              echo "✅ Updated config.json with new configuration"
+            else
+              echo "ℹ️ No config update needed"
+            fi
+          else
+            echo "⚠️ build.sh or config.toml not found"
+          fi
+
+      - name: Build modules and APKs
+        run: |
+          echo "🔨 Starting build process..."
+          
+          # Determine which config file to use
+          if [ -f "config.json" ]; then
+            echo "📄 Building with config.json..."
+            CONFIG_FILE="config.json"
+          elif [ -f "config.toml" ]; then
+            echo "📄 Building with config.toml..."
+            CONFIG_FILE="config.toml"
+          else
+            echo "❌ No config file found!"
+            exit 1
+          fi
+          
+          # Start the build
+          echo "🚀 Executing: ./build.sh $CONFIG_FILE"
+          ./build.sh "$CONFIG_FILE"
+          
+          echo "✅ Build completed successfully"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PATCHES_VERSION: ${{ env.PATCHES_VERSION }}
+
+      - name: Prepare build output
+        id: build_info
+        run: |
+          echo "📦 Preparing build output..."
+          
+          if [ ! -d "build" ]; then
+            echo "❌ Build directory not found!"
+            exit 1
+          fi
+          
+          cd build
+          
+          # Check if any APK files exist
+          if ! ls *.apk 1> /dev/null 2>&1; then
+            echo "❌ No APK files found in build directory!"
+            ls -la
+            exit 1
+          fi
+          
+          # Count and list APK files
+          APK_FILES=$(ls -1 *.apk)
+          FILES=$(echo "$APK_FILES" | tr '\n' ',' | sed 's/,$//')
+          COUNT=$(echo "$APK_FILES" | wc -l)
+          
+          echo "BUILD_COUNT=$COUNT" >> $GITHUB_OUTPUT
+          echo "BUILD_FILES=$FILES" >> $GITHUB_OUTPUT
+          echo "📱 Built $COUNT APK files: $FILES"
+          
+          # Calculate total size
+          TOTAL_SIZE=$(du -ch *.apk | tail -1 | cut -f1)
+          echo "BUILD_SIZE=$TOTAL_SIZE" >> $GITHUB_OUTPUT
+          echo "📏 Total size: $TOTAL_SIZE"
+          
+          # Prepare changelog
+          if [ -f "../build.md" ]; then
+            cp ../build.md changelog.md
+            echo "📝 Using existing build.md as changelog"
+          else
+            # Removed prerelease detection - all releases are now treated as stable
+            VERSION_TYPE="✅ Stable Release"
+          
+          cat > changelog.md << EOF
+          # ReVanced Extended ${{ env.PATCHES_VERSION }}
+
+          ## 🚀 Build Information
+          - **Patches Version**: ${{ env.PATCHES_VERSION }} ($VERSION_TYPE)
+          - **Build Date**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          - **APK Files**: $COUNT
+          - **Total Size**: $TOTAL_SIZE
+
+          ## 📦 Built APKs
+          $(echo "$APK_FILES" | sed 's/^/- /')
+
+          ## 🔗 Links
+          - [ReVanced Extended Patches](https://github.com/anddea/revanced-patches)
+          - [Build Repository](https://github.com/${{ github.repository }})
+          EOF
+            echo "📝 Generated changelog.md"
+          fi
+
+      - name: Create tag
+        run: |
+          PATCHES_VERSION="${{ env.PATCHES_VERSION }}"
+          
+          # Validate the tag name
+          if [ -z "$PATCHES_VERSION" ]; then
+            echo "❌ ERROR: PATCHES_VERSION is empty"
+            exit 1
+          fi
+          
+          echo "🏷️ Creating tag: $PATCHES_VERSION"
+          
+          # Check if tag already exists
+          if git rev-parse "$PATCHES_VERSION" >/dev/null 2>&1; then
+            echo "ℹ️ Tag $PATCHES_VERSION already exists, deleting it first"
+            git tag -d "$PATCHES_VERSION" 2>/dev/null || true
+            git push --delete origin "$PATCHES_VERSION" 2>/dev/null || true
+          fi
+          
+          # Create and push the tag
+          git tag -a "$PATCHES_VERSION" -m "ReVanced Extended $PATCHES_VERSION"
+          git push origin "$PATCHES_VERSION"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.PATCHES_VERSION }}
+          name: "ReVanced Extended ${{ env.PATCHES_VERSION }}"
+          body_path: build/changelog.md
+          files: build/*.apk
+          draft: false
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit built version to update branch
+        run: |
+          echo "📤 Committing build version to update branch..."
+          
+          # Create/update build.md with version info
+          cat > build.md << EOF
+          ${{ env.PATCHES_VERSION }}
+          EOF
+          
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Add and commit changes
+          git add build.md
+          
+          if git diff --staged --quiet; then
+            echo "ℹ️ No changes to commit"
+          else
+            git commit -m "🚀 Build ReVanced Extended ${{ env.PATCHES_VERSION }}
+
+          - Patches version: ${{ env.PATCHES_VERSION }}
+          - Build date: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          - APK count: ${{ steps.build_info.outputs.BUILD_COUNT }}
+          - Total size: ${{ steps.build_info.outputs.BUILD_SIZE }}"
+            
+            # Handle update branch push with proper error handling
+            echo "🔄 Pushing to update branch..."
+            
+            # Check if remote update branch exists
+            if git ls-remote --heads origin update | grep -q update; then
+              echo "📋 Remote update branch exists, fetching and merging..."
+              
+              # Fetch the remote update branch
+              git fetch origin update:update 2>/dev/null || true
+              
+              # Try to push with force-with-lease for safety
+              if git push --force-with-lease origin HEAD:update 2>/dev/null; then
+                echo "✅ Successfully force-pushed to update branch"
+              else
+                echo "⚠️ Force push failed, trying to reset update branch..."
+                # Force push as last resort (safe since it's just tracking build versions)
+                git push --force origin HEAD:update
+                echo "✅ Successfully reset update branch"
+              fi
+            else
+              echo "🆕 Creating new update branch..."
+              git push origin HEAD:refs/heads/update
+              echo "✅ Successfully created update branch"
+            fi
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Send Telegram notification
+        if: always()
+        run: |
+          echo "📱 Sending Telegram notification..."
+          
+          # Determine build status
+          if [ "${{ job.status }}" = "success" ] && [ -d "build" ] && ls build/*.apk 1> /dev/null 2>&1; then
+            cd build
+            FILE_LIST=$(ls -1 *.apk 2>/dev/null | head -8 | sed 's/^/• /' | tr '\n' '\n' || echo "No files")
+            FILE_COUNT=$(ls -1 *.apk 2>/dev/null | wc -l || echo "0")
+            TOTAL_SIZE="${{ steps.build_info.outputs.BUILD_SIZE }}"
+            STATUS="✅ SUCCESS"
+            STATUS_EMOJI="🎉"
+            cd ..
+          else
+            FILE_LIST="❌ Build failed or no APK files generated"
+            FILE_COUNT="0"
+            TOTAL_SIZE="0"
+            STATUS="❌ FAILED"
+            STATUS_EMOJI="💥"
+          fi
+
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ env.PATCHES_VERSION }}"
+          REPO_URL="https://github.com/${{ github.repository }}"
+
+          # Removed prerelease detection - all releases are now treated as stable
+          VERSION_BADGE="✅ Stable"
+
+          # Create formatted message
+          MESSAGE="$STATUS_EMOJI <b>ReVanced Extended Build Complete</b>
+
+          📋 <b>Status:</b> $STATUS
+          🏷️ <b>Version:</b> <code>${{ env.PATCHES_VERSION }}</code> ($VERSION_BADGE)
+          📦 <b>APK Files:</b> $FILE_COUNT
+          📏 <b>Total Size:</b> $TOTAL_SIZE
+          🕒 <b>Completed:</b> $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+
+          📁 <b>Built APKs:</b>
+          $FILE_LIST
+
+          🔗 <b>Links:</b>
+          • <a href=\"$RELEASE_URL\">Download Release</a>
+          • <a href=\"$REPO_URL\">Repository</a>"
+
+          # Send to Telegram
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
+            -d "chat_id=717601421" \
+            -d "text=$MESSAGE" \
+            -d "parse_mode=HTML" \
+            -d "disable_web_page_preview=true" \
+            -d "disable_notification=false" > /dev/null 2>&1 || echo "⚠️ Telegram notification failed"
+          
+          echo "✅ Notification sent successfully"
