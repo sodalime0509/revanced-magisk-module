@@ -3,7 +3,7 @@ name: CI
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 16 * * *"
+    - cron: "0 * * * *"  # checks hourly
 
 jobs:
   check:
@@ -11,35 +11,36 @@ jobs:
     permissions: write-all
     outputs:
       SHOULD_BUILD: ${{ steps.should_build.outputs.SHOULD_BUILD }}
+      PATCHES_VERSION: ${{ steps.should_build.outputs.PATCHES_VERSION }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Should build?
+      - name: Get latest ReVanced Extended patch version
         id: should_build
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if ! git checkout origin/update build.md; then
-            echo "first time building!"
-            echo "SHOULD_BUILD=1" >> $GITHUB_OUTPUT
+          echo "Fetching latest release from Anddea..."
+          PATCHES_VERSION=$(curl -s https://api.github.com/repos/anddea/revanced-patches/releases | jq -r '.[0].tag_name')
+          echo "Latest Anddea patch: $PATCHES_VERSION"
+
+          # Check if we already built this version
+          if git checkout origin/update build.md 2>/dev/null && grep -q "$PATCHES_VERSION" build.md; then
+            echo "Already built $PATCHES_VERSION. Skipping build."
+            echo "SHOULD_BUILD=0" >> $GITHUB_OUTPUT
           else
-            UPDATE_CFG=$(./build.sh config.toml --config-update)
-            if [ "$UPDATE_CFG" ]; then
-              echo "'$UPDATE_CFG'"
-              echo "SHOULD_BUILD=1" >> $GITHUB_OUTPUT
-            else
-              echo "SHOULD_BUILD=0" >> $GITHUB_OUTPUT
-            fi
+            echo "New patch available: $PATCHES_VERSION"
+            echo "SHOULD_BUILD=1" >> $GITHUB_OUTPUT
           fi
+
+          echo "PATCHES_VERSION=$PATCHES_VERSION" >> $GITHUB_OUTPUT
 
       - name: Clear older workflow runs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          sudo apt install gh -y
           gh run list -L400 --json databaseId -q '.[].databaseId' | tail -n+10 | xargs -IID gh api "repos/$GITHUB_REPOSITORY/actions/runs/ID" -X DELETE || :
 
   build:
@@ -48,3 +49,5 @@ jobs:
     permissions: write-all
     uses: ./.github/workflows/build.yml
     secrets: inherit
+    with:
+      PATCHES_VERSION: ${{ needs.check.outputs.PATCHES_VERSION }}
