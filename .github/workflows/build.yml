@@ -138,11 +138,18 @@ jobs:
             cp ../build.md changelog.md
             echo "📝 Using existing build.md as changelog"
           else
-            cat > changelog.md << EOF
+            # Check if this is a pre-release version
+          if echo "${{ env.PATCHES_VERSION }}" | grep -q "dev\|alpha\|beta\|rc"; then
+            VERSION_TYPE="🚧 Pre-release"
+          else
+            VERSION_TYPE="✅ Stable Release"
+          fi
+          
+          cat > changelog.md << EOF
           # ReVanced Extended ${{ env.PATCHES_VERSION }}
 
           ## 🚀 Build Information
-          - **Patches Version**: ${{ env.PATCHES_VERSION }}
+          - **Patches Version**: ${{ env.PATCHES_VERSION }} ($VERSION_TYPE)
           - **Build Date**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
           - **APK Files**: $COUNT
           - **Total Size**: $TOTAL_SIZE
@@ -165,7 +172,7 @@ jobs:
           body_path: build/changelog.md
           files: build/*.apk
           draft: false
-          prerelease: false
+          prerelease: ${{ contains(env.PATCHES_VERSION, 'dev') || contains(env.PATCHES_VERSION, 'alpha') || contains(env.PATCHES_VERSION, 'beta') || contains(env.PATCHES_VERSION, 'rc') }}
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -232,11 +239,18 @@ jobs:
           RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ env.PATCHES_VERSION }}"
           REPO_URL="https://github.com/${{ github.repository }}"
 
+          # Determine version type for notification
+          if echo "${{ env.PATCHES_VERSION }}" | grep -q "dev\|alpha\|beta\|rc"; then
+            VERSION_BADGE="🚧 Pre-release"
+          else
+            VERSION_BADGE="✅ Stable"
+          fi
+
           # Create formatted message
           MESSAGE="$STATUS_EMOJI <b>ReVanced Extended Build Complete</b>
 
           📋 <b>Status:</b> $STATUS
-          🏷️ <b>Version:</b> <code>${{ env.PATCHES_VERSION }}</code>
+          🏷️ <b>Version:</b> <code>${{ env.PATCHES_VERSION }}</code> ($VERSION_BADGE)
           📦 <b>APK Files:</b> $FILE_COUNT
           📏 <b>Total Size:</b> $TOTAL_SIZE
           🕒 <b>Completed:</b> $(date -u '+%Y-%m-%d %H:%M:%S UTC')
