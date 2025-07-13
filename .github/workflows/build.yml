@@ -203,12 +203,29 @@ jobs:
           - APK count: ${{ steps.build_info.outputs.BUILD_COUNT }}
           - Total size: ${{ steps.build_info.outputs.BUILD_SIZE }}"
             
-            # Push to update branch (create if doesn't exist)
-            if git push origin HEAD:update 2>/dev/null; then
-              echo "✅ Successfully pushed to update branch"
+            # Handle update branch push with proper error handling
+            echo "🔄 Pushing to update branch..."
+            
+            # Check if remote update branch exists
+            if git ls-remote --heads origin update | grep -q update; then
+              echo "📋 Remote update branch exists, fetching and merging..."
+              
+              # Fetch the remote update branch
+              git fetch origin update:update 2>/dev/null || true
+              
+              # Try to push with force-with-lease for safety
+              if git push --force-with-lease origin HEAD:update 2>/dev/null; then
+                echo "✅ Successfully force-pushed to update branch"
+              else
+                echo "⚠️ Force push failed, trying to reset update branch..."
+                # Force push as last resort (safe since it's just tracking build versions)
+                git push --force origin HEAD:update
+                echo "✅ Successfully reset update branch"
+              fi
             else
-              echo "🆕 Creating update branch..."
+              echo "🆕 Creating new update branch..."
               git push origin HEAD:refs/heads/update
+              echo "✅ Successfully created update branch"
             fi
           fi
         env:
