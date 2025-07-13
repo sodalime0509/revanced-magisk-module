@@ -172,7 +172,7 @@ jobs:
           body_path: build/changelog.md
           files: build/*.apk
           draft: false
-          prerelease: ${{ contains(env.PATCHES_VERSION, 'dev') || contains(env.PATCHES_VERSION, 'alpha') || contains(env.PATCHES_VERSION, 'beta') || contains(env.PATCHES_VERSION, 'rc') }}
+          #prerelease: ${{ contains(env.PATCHES_VERSION, 'dev') || contains(env.PATCHES_VERSION, 'alpha') || contains(env.PATCHES_VERSION, 'beta') || contains(env.PATCHES_VERSION, 'rc') }}
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
