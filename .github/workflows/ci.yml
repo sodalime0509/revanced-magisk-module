@@ -3,7 +3,7 @@ name: CI
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 * * * *"  # checks hourly
+    - cron: "0 * * * *"  # Runs hourly
 
 jobs:
   check:
@@ -18,19 +18,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get latest ReVanced Extended patch version
+      - name: Check if new patch version is available
         id: should_build
         run: |
           echo "Fetching latest release from Anddea..."
           PATCHES_VERSION=$(curl -s https://api.github.com/repos/anddea/revanced-patches/releases | jq -r '.[0].tag_name')
-          echo "Latest Anddea patch: $PATCHES_VERSION"
+          echo "Latest patch: $PATCHES_VERSION"
 
-          # Check if we already built this version
-          if git checkout origin/update build.md 2>/dev/null && grep -q "$PATCHES_VERSION" build.md; then
-            echo "Already built $PATCHES_VERSION. Skipping build."
+          BUILT_VERSION=""
+          if git checkout origin/update build.md 2>/dev/null && [ -f build.md ]; then
+            BUILT_VERSION=$(cat build.md)
+          fi
+
+          if [ "$BUILT_VERSION" = "$PATCHES_VERSION" ]; then
+            echo "Already built this version"
             echo "SHOULD_BUILD=0" >> $GITHUB_OUTPUT
           else
-            echo "New patch available: $PATCHES_VERSION"
+            echo "New version detected!"
             echo "SHOULD_BUILD=1" >> $GITHUB_OUTPUT
           fi
 
@@ -40,7 +44,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          sudo apt install gh -y
+          sudo apt update && sudo apt install gh -y
           gh run list -L400 --json databaseId -q '.[].databaseId' | tail -n+10 | xargs -IID gh api "repos/$GITHUB_REPOSITORY/actions/runs/ID" -X DELETE || :
 
   build:
