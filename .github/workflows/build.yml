@@ -2,6 +2,10 @@ name: Build Modules
 
 on:
   workflow_call:
+    inputs:
+      PATCHES_VERSION:
+        required: true
+        type: string
   workflow_dispatch:
 
 jobs:
@@ -23,36 +27,9 @@ jobs:
           distribution: "zulu"
           java-version: "17"
 
-      - name: Get today's date
-        id: date
-        run: echo "TODAY=$(date -u +'%Y-%m-%d')" >> $GITHUB_OUTPUT
-
-      - name: Get ReVanced patches version
-        id: patches_version
-        run: |
-          PATCHES_VERSION=""
-
-          if [ -f "config.toml" ]; then
-            PATCHES_VERSION=$(grep -i "patches.*version\|version.*patches" config.toml | head -1 | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' || echo "")
-          fi
-
-          if [ -z "$PATCHES_VERSION" ]; then
-            PATCHES_JAR=$(find . -name "*patches*.jar" | head -1)
-            if [ -n "$PATCHES_JAR" ]; then
-              PATCHES_VERSION=$(echo "$PATCHES_JAR" | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' || echo "")
-            fi
-          fi
-
-          if [ -z "$PATCHES_VERSION" ]; then
-            PATCHES_VERSION=$(curl -s "https://api.github.com/repos/revanced/revanced-patches/releases/latest" | grep -o '"tag_name": "v[^"]*' | cut -d'v' -f2 || echo "")
-          fi
-
-          if [ -z "$PATCHES_VERSION" ]; then
-            PATCHES_VERSION="unknown"
-          fi
-
-          echo "PATCHES_VERSION=$PATCHES_VERSION" >> $GITHUB_OUTPUT
-          echo "ReVanced patches version: $PATCHES_VERSION"
+      - name: Save PATCHES_VERSION
+        id: save_patch
+        run: echo "PATCHES_VERSION=${{ inputs.PATCHES_VERSION }}" >> $GITHUB_ENV
 
       - name: Update config
         run: |
@@ -64,17 +41,6 @@ jobs:
               fi
             fi
           fi
-
-      - name: Get next version
-        id: version
-        run: |
-          LATEST_TAG=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/latest" | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4 || echo "0")
-          if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then
-            LATEST_TAG="0"
-          fi
-          NEXT_VERSION=$((LATEST_TAG + 1))
-          echo "NEXT_VERSION=$NEXT_VERSION" >> $GITHUB_OUTPUT
-          echo "Next version will be: $NEXT_VERSION"
 
       - name: Build modules and APKs
         run: |
@@ -89,7 +55,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          NEXT_VER_CODE: ${{ steps.version.outputs.NEXT_VERSION }}
+          PATCHES_VERSION: ${{ env.PATCHES_VERSION }}
 
       - name: Prepare build output
         id: build_info
@@ -106,14 +72,14 @@ jobs:
           if [ -f "../build.md" ]; then
             cp ../build.md changelog.md
           else
-            echo "Automated build $(date)" > changelog.md
+            echo "ReX $PATCHES_VERSION Build" > changelog.md
           fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ steps.date.outputs.TODAY }}
-          name: ReX ${{ steps.patches_version.outputs.PATCHES_VERSION }}
+          tag_name: ${{ env.PATCHES_VERSION }}
+          name: ReX ${{ env.PATCHES_VERSION }}
           body_path: build/changelog.md
           files: build/*
           draft: false
@@ -136,11 +102,11 @@ jobs:
             STATUS="FAILED"
           fi
 
-          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ steps.date.outputs.TODAY }}"
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ env.PATCHES_VERSION }}"
 
           MESSAGE="ReVanced Build Complete 
           Status: $STATUS 
-          Build: ${{ steps.date.outputs.TODAY }} 
+          Build: $PATCHES_VERSION 
           Files: $FILE_COUNT 
           Release: $RELEASE_URL 
           Built: $FILE_LIST 
@@ -150,5 +116,3 @@ jobs:
             -d "chat_id=717601421" \
             -d "text=$MESSAGE" \
             -d "disable_web_page_preview=true" || echo "Telegram notification failed"
-
-          echo "Notification sent!"
