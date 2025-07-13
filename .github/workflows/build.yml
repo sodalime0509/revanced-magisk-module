@@ -198,6 +198,10 @@ jobs:
             exit 1
           fi
           
+          # Configure git with proper identity for tagging
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
           echo "🏷️ Creating tag: $PATCHES_VERSION"
           
           # Check if tag already exists
@@ -235,9 +239,13 @@ jobs:
           ${{ env.PATCHES_VERSION }}
           EOF
           
-          # Configure git
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Configure git with proper identity
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # Verify git configuration
+          echo "Git user: $(git config user.name)"
+          echo "Git email: $(git config user.email)"
           
           # Add and commit changes
           git add build.md
