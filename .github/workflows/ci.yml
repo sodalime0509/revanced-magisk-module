@@ -25,16 +25,18 @@ jobs:
       - name: Check if new patch version is available
         id: should_build
         run: |
-          echo "🔍 Checking for new ReVanced Extended patches..."
+          echo "🔍 Checking for new ReVanced Extended patches (including pre-releases)..."
           
-          # Fetch latest release with authentication to avoid rate limits
+          # Fetch ALL releases (including pre-releases) with authentication
           RESPONSE=$(curl -s \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/anddea/revanced-patches/releases/latest)
+            "https://api.github.com/repos/anddea/revanced-patches/releases?per_page=10")
           
-          # Extract version and validate response
-          PATCHES_VERSION=$(echo "$RESPONSE" | jq -r '.tag_name // empty')
+          # Extract the most recent release (first in the list, whether stable or pre-release)
+          PATCHES_VERSION=$(echo "$RESPONSE" | jq -r '.[0].tag_name // empty')
+          IS_PRERELEASE=$(echo "$RESPONSE" | jq -r '.[0].prerelease // false')
+          RELEASE_NAME=$(echo "$RESPONSE" | jq -r '.[0].name // empty')
           
           if [ -z "$PATCHES_VERSION" ] || [ "$PATCHES_VERSION" = "null" ]; then
             echo "❌ Failed to fetch latest version from API"
@@ -42,7 +44,11 @@ jobs:
             exit 1
           fi
           
-          echo "📦 Latest patch version: $PATCHES_VERSION"
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            echo "📦 Latest version: $PATCHES_VERSION (🚧 Pre-release)"
+          else
+            echo "📦 Latest version: $PATCHES_VERSION (✅ Stable release)"
+          fi
           
           # Check previously built version
           BUILT_VERSION=""
