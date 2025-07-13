@@ -45,6 +45,14 @@ jobs:
       - name: Save PATCHES_VERSION
         id: save_patch
         run: |
+          # Validate PATCHES_VERSION input
+          if [ -z "${{ inputs.PATCHES_VERSION }}" ] || [ "${{ inputs.PATCHES_VERSION }}" = "null" ]; then
+            echo "❌ ERROR: PATCHES_VERSION input is required but not provided or is null"
+            echo "Received value: '${{ inputs.PATCHES_VERSION }}'"
+            echo "Please ensure the CI workflow is passing a valid PATCHES_VERSION"
+            exit 1
+          fi
+          
           echo "PATCHES_VERSION=${{ inputs.PATCHES_VERSION }}" >> $GITHUB_ENV
           echo "🏷️ Building ReVanced Extended with patches version: ${{ inputs.PATCHES_VERSION }}"
 
@@ -162,9 +170,26 @@ jobs:
 
       - name: Create tag
         run: |
-          echo "🏷️ Creating tag: ${{ inputs.PATCHES_VERSION }}"
-          git tag -a "${{ inputs.PATCHES_VERSION }}" -m "ReVanced Extended ${{ inputs.PATCHES_VERSION }}"
-          git push origin "${{ inputs.PATCHES_VERSION }}"
+          PATCHES_VERSION="${{ inputs.PATCHES_VERSION }}"
+          
+          # Validate the tag name
+          if [ -z "$PATCHES_VERSION" ]; then
+            echo "❌ ERROR: PATCHES_VERSION is empty"
+            exit 1
+          fi
+          
+          echo "🏷️ Creating tag: $PATCHES_VERSION"
+          
+          # Check if tag already exists
+          if git rev-parse "$PATCHES_VERSION" >/dev/null 2>&1; then
+            echo "ℹ️ Tag $PATCHES_VERSION already exists, deleting it first"
+            git tag -d "$PATCHES_VERSION" 2>/dev/null || true
+            git push --delete origin "$PATCHES_VERSION" 2>/dev/null || true
+          fi
+          
+          # Create and push the tag
+          git tag -a "$PATCHES_VERSION" -m "ReVanced Extended $PATCHES_VERSION"
+          git push origin "$PATCHES_VERSION"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
