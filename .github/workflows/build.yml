@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -20,6 +21,7 @@ jobs:
         with:
           fetch-depth: 0
           submodules: true
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -27,31 +29,72 @@ jobs:
           distribution: "zulu"
           java-version: "17"
 
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Make build script executable
+        run: chmod +x build.sh
+
       - name: Save PATCHES_VERSION
         id: save_patch
-        run: echo "PATCHES_VERSION=${{ inputs.PATCHES_VERSION }}" >> $GITHUB_ENV
+        run: |
+          echo "PATCHES_VERSION=${{ inputs.PATCHES_VERSION }}" >> $GITHUB_ENV
+          echo "🏷️ Building ReVanced Extended with patches version: ${{ inputs.PATCHES_VERSION }}"
 
       - name: Update config
         run: |
-          if git checkout origin/update build.md 2>/dev/null; then
-            if [ -f "./build.sh" ] && [ -f "config.toml" ]; then
-              UPDATE_CFG=$(./build.sh config.toml --config-update 2>/dev/null || echo "")
-              if [ -n "$UPDATE_CFG" ]; then
-                echo "$UPDATE_CFG" > config.json
-              fi
+          echo "🔧 Updating configuration..."
+          
+          # Try to get updated config if update branch exists
+          if git ls-remote --heads origin update | grep -q update; then
+            echo "📋 Update branch found, checking for config updates..."
+            if git checkout origin/update -- build.md 2>/dev/null || git checkout origin/update build.md 2>/dev/null; then
+              echo "✅ Checked out build.md from update branch"
             fi
+          fi
+          
+          # Check if build script and config exist
+          if [ -f "./build.sh" ] && [ -f "config.toml" ]; then
+            echo "🔄 Running config update..."
+            UPDATE_CFG=$(./build.sh config.toml --config-update 2>/dev/null || echo "")
+            if [ -n "$UPDATE_CFG" ]; then
+              echo "$UPDATE_CFG" > config.json
+              echo "✅ Updated config.json with new configuration"
+            else
+              echo "ℹ️ No config update needed"
+            fi
+          else
+            echo "⚠️ build.sh or config.toml not found"
           fi
 
       - name: Build modules and APKs
         run: |
+          echo "🔨 Starting build process..."
+          
+          # Determine which config file to use
           if [ -f "config.json" ]; then
-            ./build.sh config.json
+            echo "📄 Building with config.json..."
+            CONFIG_FILE="config.json"
           elif [ -f "config.toml" ]; then
-            ./build.sh config.toml
+            echo "📄 Building with config.toml..."
+            CONFIG_FILE="config.toml"
           else
-            echo "No config file found!"
+            echo "❌ No config file found!"
             exit 1
           fi
+          
+          # Start the build
+          echo "🚀 Executing: ./build.sh $CONFIG_FILE"
+          ./build.sh "$CONFIG_FILE"
+          
+          echo "✅ Build completed successfully"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -60,70 +103,157 @@ jobs:
       - name: Prepare build output
         id: build_info
         run: |
+          echo "📦 Preparing build output..."
+          
           if [ ! -d "build" ]; then
-            echo "Build directory not found!"
+            echo "❌ Build directory not found!"
             exit 1
           fi
+          
           cd build
-          FILES=$(ls -1 | grep '\.apk$' | tr '\n' ',' | sed 's/,$//')
-          COUNT=$(ls -1 | grep '\.apk$' | wc -l)
+          
+          # Check if any APK files exist
+          if ! ls *.apk 1> /dev/null 2>&1; then
+            echo "❌ No APK files found in build directory!"
+            ls -la
+            exit 1
+          fi
+          
+          # Count and list APK files
+          APK_FILES=$(ls -1 *.apk)
+          FILES=$(echo "$APK_FILES" | tr '\n' ',' | sed 's/,$//')
+          COUNT=$(echo "$APK_FILES" | wc -l)
+          
           echo "BUILD_COUNT=$COUNT" >> $GITHUB_OUTPUT
           echo "BUILD_FILES=$FILES" >> $GITHUB_OUTPUT
+          echo "📱 Built $COUNT APK files: $FILES"
+          
+          # Calculate total size
+          TOTAL_SIZE=$(du -ch *.apk | tail -1 | cut -f1)
+          echo "BUILD_SIZE=$TOTAL_SIZE" >> $GITHUB_OUTPUT
+          echo "📏 Total size: $TOTAL_SIZE"
+          
+          # Prepare changelog
           if [ -f "../build.md" ]; then
             cp ../build.md changelog.md
+            echo "📝 Using existing build.md as changelog"
           else
-            echo "ReX $PATCHES_VERSION Build" > changelog.md
+            cat > changelog.md << EOF
+          # ReVanced Extended ${{ env.PATCHES_VERSION }}
+
+          ## 🚀 Build Information
+          - **Patches Version**: ${{ env.PATCHES_VERSION }}
+          - **Build Date**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          - **APK Files**: $COUNT
+          - **Total Size**: $TOTAL_SIZE
+
+          ## 📦 Built APKs
+          $(echo "$APK_FILES" | sed 's/^/- /')
+
+          ## 🔗 Links
+          - [ReVanced Extended Patches](https://github.com/anddea/revanced-patches)
+          - [Build Repository](https://github.com/${{ github.repository }})
+          EOF
+            echo "📝 Generated changelog.md"
           fi
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.PATCHES_VERSION }}
-          name: ReX ${{ env.PATCHES_VERSION }}
+          name: "ReVanced Extended ${{ env.PATCHES_VERSION }}"
           body_path: build/changelog.md
-          files: build/*
+          files: build/*.apk
           draft: false
           prerelease: false
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Commit built version to update branch
         run: |
-          echo "${{ env.PATCHES_VERSION }}" > build.md
+          echo "📤 Committing build version to update branch..."
+          
+          # Create/update build.md with version info
+          cat > build.md << EOF
+          ${{ env.PATCHES_VERSION }}
+          EOF
+          
+          # Configure git
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Add and commit changes
           git add build.md
-          git commit -m "Build ReX ${{ env.PATCHES_VERSION }}" || echo "Nothing to commit"
-          git push origin HEAD:update || echo "Push failed"
+          
+          if git diff --staged --quiet; then
+            echo "ℹ️ No changes to commit"
+          else
+            git commit -m "🚀 Build ReVanced Extended ${{ env.PATCHES_VERSION }}
+
+          - Patches version: ${{ env.PATCHES_VERSION }}
+          - Build date: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          - APK count: ${{ steps.build_info.outputs.BUILD_COUNT }}
+          - Total size: ${{ steps.build_info.outputs.BUILD_SIZE }}"
+            
+            # Push to update branch (create if doesn't exist)
+            if git push origin HEAD:update 2>/dev/null; then
+              echo "✅ Successfully pushed to update branch"
+            else
+              echo "🆕 Creating update branch..."
+              git push origin HEAD:refs/heads/update
+            fi
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Send Telegram notification
         if: always()
         run: |
-          if [ -d "build" ]; then
+          echo "📱 Sending Telegram notification..."
+          
+          # Determine build status
+          if [ "${{ job.status }}" = "success" ] && [ -d "build" ] && ls build/*.apk 1> /dev/null 2>&1; then
             cd build
-            FILE_LIST=$(ls -1 2>/dev/null | head -5 | tr '\n' ',' | sed 's/,$//' || echo "No files")
-            FILE_COUNT=$(ls -1 2>/dev/null | wc -l || echo "0")
-            STATUS="SUCCESS"
+            FILE_LIST=$(ls -1 *.apk 2>/dev/null | head -8 | sed 's/^/• /' | tr '\n' '\n' || echo "No files")
+            FILE_COUNT=$(ls -1 *.apk 2>/dev/null | wc -l || echo "0")
+            TOTAL_SIZE="${{ steps.build_info.outputs.BUILD_SIZE }}"
+            STATUS="✅ SUCCESS"
+            STATUS_EMOJI="🎉"
             cd ..
           else
-            FILE_LIST="No files built"
+            FILE_LIST="❌ Build failed or no APK files generated"
             FILE_COUNT="0"
-            STATUS="FAILED"
+            TOTAL_SIZE="0"
+            STATUS="❌ FAILED"
+            STATUS_EMOJI="💥"
           fi
 
           RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ env.PATCHES_VERSION }}"
+          REPO_URL="https://github.com/${{ github.repository }}"
 
-          MESSAGE="ReVanced Build Complete 
-          Status: $STATUS 
-          Build: $PATCHES_VERSION 
-          Files: $FILE_COUNT 
-          Release: $RELEASE_URL 
-          Built: $FILE_LIST 
-          Time: $(date -u)"
+          # Create formatted message
+          MESSAGE="$STATUS_EMOJI <b>ReVanced Extended Build Complete</b>
 
+          📋 <b>Status:</b> $STATUS
+          🏷️ <b>Version:</b> <code>${{ env.PATCHES_VERSION }}</code>
+          📦 <b>APK Files:</b> $FILE_COUNT
+          📏 <b>Total Size:</b> $TOTAL_SIZE
+          🕒 <b>Completed:</b> $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+
+          📁 <b>Built APKs:</b>
+          $FILE_LIST
+
+          🔗 <b>Links:</b>
+          • <a href=\"$RELEASE_URL\">Download Release</a>
+          • <a href=\"$REPO_URL\">Repository</a>"
+
+          # Send to Telegram
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
             -d "chat_id=717601421" \
             -d "text=$MESSAGE" \
-            -d "disable_web_page_preview=true" || echo "Telegram notification failed"
+            -d "parse_mode=HTML" \
+            -d "disable_web_page_preview=true" \
+            -d "disable_notification=false" > /dev/null 2>&1 || echo "⚠️ Telegram notification failed"
+          
+          echo "✅ Notification sent successfully"
