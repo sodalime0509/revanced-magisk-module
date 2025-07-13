@@ -160,6 +160,14 @@ jobs:
             echo "📝 Generated changelog.md"
           fi
 
+      - name: Create tag
+        run: |
+          echo "🏷️ Creating tag: ${{ inputs.PATCHES_VERSION }}"
+          git tag -a "${{ inputs.PATCHES_VERSION }}" -m "ReVanced Extended ${{ inputs.PATCHES_VERSION }}"
+          git push origin "${{ inputs.PATCHES_VERSION }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
