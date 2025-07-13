@@ -33,15 +33,35 @@ jobs:
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/anddea/revanced-patches/releases?per_page=10")
           
+          # Check if curl was successful
+          if [ $? -ne 0 ]; then
+            echo "❌ Failed to fetch releases from GitHub API"
+            exit 1
+          fi
+          
+          # Check if response is valid JSON
+          if ! echo "$RESPONSE" | jq empty 2>/dev/null; then
+            echo "❌ Invalid JSON response from API"
+            echo "Response: $RESPONSE"
+            exit 1
+          fi
+          
           # Extract the most recent release (first in the list, whether stable or pre-release)
           PATCHES_VERSION=$(echo "$RESPONSE" | jq -r '.[0].tag_name // empty')
           IS_PRERELEASE=$(echo "$RESPONSE" | jq -r '.[0].prerelease // false')
           RELEASE_NAME=$(echo "$RESPONSE" | jq -r '.[0].name // empty')
           
-          if [ -z "$PATCHES_VERSION" ] || [ "$PATCHES_VERSION" = "null" ]; then
-            echo "❌ Failed to fetch latest version from API"
+          # Validate the extracted version
+          if [ -z "$PATCHES_VERSION" ] || [ "$PATCHES_VERSION" = "null" ] || [ "$PATCHES_VERSION" = "empty" ]; then
+            echo "❌ Failed to extract valid version from API response"
             echo "Response: $RESPONSE"
             exit 1
+          fi
+          
+          # Additional validation - check if version looks like a valid tag
+          if ! echo "$PATCHES_VERSION" | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+' >/dev/null; then
+            echo "⚠️ Warning: Version doesn't look like a standard semver: $PATCHES_VERSION"
+            echo "Proceeding anyway..."
           fi
           
           if [ "$IS_PRERELEASE" = "true" ]; then
@@ -73,7 +93,14 @@ jobs:
             echo "SHOULD_BUILD=1" >> $GITHUB_OUTPUT
           fi
           
-          echo "PATCHES_VERSION=$PATCHES_VERSION" >> $GITHUB_OUTPUT
+          # Final validation before outputting
+          if [ -n "$PATCHES_VERSION" ] && [ "$PATCHES_VERSION" != "null" ]; then
+            echo "PATCHES_VERSION=$PATCHES_VERSION" >> $GITHUB_OUTPUT
+            echo "✅ Successfully set PATCHES_VERSION to: $PATCHES_VERSION"
+          else
+            echo "❌ Failed to set valid PATCHES_VERSION"
+            exit 1
+          fi
 
       - name: Clean up old workflow runs
         if: success()
