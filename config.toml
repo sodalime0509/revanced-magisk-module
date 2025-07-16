@@ -21,6 +21,7 @@ archive-dlurl = "https://archive.org/download/jhc-apks/apks/com.google.android.y
 apkmirror-dlurl = "https://www.apkmirror.com/apk/redditinc/reddit"
 uptodown-dlurl = "https://reddit-official-app.en.uptodown.com/android"
 version = "2025.12.1"
+patches-source = "anddea/revanced-patches"
 # or uptodown-dlurl = "https://app.en.uptodown.com/android"
 
 [Music]
