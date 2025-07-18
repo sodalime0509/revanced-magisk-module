@@ -1,40 +1,64 @@
+# A reusable GitHub Actions workflow to delete all releases except the most recent one.
+# This helps in keeping the releases page clean and manageable.
 name: Delete Old Releases
 
 on:
+  # This makes the workflow reusable and callable from other workflows.
   workflow_call:
 
 jobs:
   cleanup:
+    name: Clean Up Old Releases
     runs-on: ubuntu-latest
-
+    permissions:
+      # Required to read and write releases.
+      contents: write
+      
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install GitHub CLI
-        run: |
-          sudo apt update
-          sudo apt install -y gh
-
-      - name: Delete old releases (keep latest)
+      - name: Delete old releases (keep latest by date)
         env:
+          # The GITHUB_TOKEN is automatically provided by GitHub Actions.
+          # It has the necessary permissions to manage releases in the repository.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Fetching all releases..."
-          releases=$(gh release list --limit 100 --json tagName,createdAt --jq 'sort_by(.createdAt) | reverse | .[].tagName')
+          # This script deletes all releases except for the most recently created one.
+          # It fetches releases, sorts them by creation date, keeps the newest, and deletes the rest.
+
+          echo "Fetching all releases and sorting by creation date..."
+          
+          # List releases, sorted by creation date (newest first).
+          # The GitHub CLI has a maximum limit of 1000 releases per API call.
+          # This should be sufficient for most projects.
+          # The jq command sorts the releases by 'createdAt' in descending order and extracts the tag name.
+          releases=$(gh release list --limit 1000 --json tagName,createdAt --jq 'sort_by(.createdAt) | reverse | .[].tagName')
 
           if [ -z "$releases" ]; then
-            echo "No releases found."
+            echo "No releases found to clean up."
             exit 0
           fi
 
-          # Convert the list of releases into an array
+          # Convert the newline-separated list of release tags into a bash array.
+          # This makes it easier to iterate through them.
           readarray -t release_array <<< "$releases"
 
-          echo "Keeping the latest release: ${release_array[0]}"
+          latest_release="${release_array[0]}"
+          echo "Keeping the latest release (by creation date): $latest_release"
 
+          # Loop through all releases in the array, starting from the second one.
+          # The first one (index 0) is the latest release, which we want to keep.
           for ((i=1; i<${#release_array[@]}; i++)); do
-            release="${release_array[$i]}"
-            echo "Deleting release: $release"
-            gh release delete "$release" -y
+            release_to_delete="${release_array[$i]}"
+            if [ -n "$release_to_delete" ]; then
+              echo "Deleting release: $release_to_delete"
+              # The '-y' flag automatically confirms the deletion prompt.
+              # The '--cleanup-tag' flag also deletes the underlying Git tag associated with the release.
+              gh release delete "$release_to_delete" --cleanup-tag -y
+            fi
           done
+
+          echo "Cleanup of old releases is complete."
+
+
