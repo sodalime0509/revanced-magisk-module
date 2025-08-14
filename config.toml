@@ -60,7 +60,7 @@ apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/youtube-music"
 [YouTube-Extended]
 app-name = "YouTube"
 included-patches = " 'MaterialYou' "
-version = "20.21.35"
+version = "20.21.37"
 patches-source = "anddea/revanced-patches"
 cli-source = "inotia00/revanced-cli"
 rv-brand = "ReVanced Extended"
