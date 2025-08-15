@@ -32,7 +32,7 @@ apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/youtube-music"
 uptodown-dlurl = "https://youtube-music.en.uptodown.com/android"
 archive-dlurl = "https://archive.org/download/jhc-apks/apks/com.google.android.apps.youtube.music"
 version = "8.25.54"
-patcher-args = "-e 'GmsCore support' -OpackageNameYouTubeMusic=com.spotify.music"
+patcher-args = "-e 'GmsCore support' -OChangepackagename=com.spotify.music"
 
 [GooglePhotos]
 build-mode = "apk"
